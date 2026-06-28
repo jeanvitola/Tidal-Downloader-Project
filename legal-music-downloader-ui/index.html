@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AetherMusic - Descarga de Música Legal</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- Main CSS Link -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-icon">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M9 18V5l12-2v13"></path>
+                        <circle cx="6" cy="18" r="3"></circle>
+                        <circle cx="18" cy="16" r="3"></circle>
+                    </svg>
+                </div>
+                <span>AetherMusic</span>
+            </div>
+            
+            <ul class="nav-menu">
+                <li>
+                    <a class="nav-item active" data-tab="search">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="11" cy="11" r="8"></circle>
+                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                        </svg>
+                        <span>Buscar</span>
+                    </a>
+                </li>
+                <li>
+                    <a class="nav-item" data-tab="download">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="7 10 12 15 17 10"></polyline>
+                            <line x1="12" y1="15" x2="12" y2="3"></line>
+                        </svg>
+                        <span>Descargas</span>
+                    </a>
+                </li>
+                <li>
+                    <a class="nav-item" data-tab="library">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M9 18V5l12-2v13"></path>
+                            <circle cx="6" cy="18" r="3"></circle>
+                            <circle cx="18" cy="16" r="3"></circle>
+                        </svg>
+                        <span>Biblioteca</span>
+                    </a>
+                </li>
+                <li>
+                    <a class="nav-item" data-tab="settings">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="3"></circle>
+                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.51 1H7a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                        </svg>
+                        <span>Configuración</span>
+                    </a>
+                </li>
+            </ul>
+            
+            <!-- Legal Music Source Badge -->
+            <div class="legal-badge-sidebar">
+                <div class="legal-badge-sidebar-title">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    Filtro de Música Legal
+                </div>
+                <span>Toda la música disponible procede de fuentes de dominio público, catálogos Creative Commons o licencias de usuario válidas.</span>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            
+            <!-- 1. Search Panel -->
+            <section id="search-section" class="view-section active">
+                <div class="header-container">
+                    <h1 class="header-title">Descubre Música Legal</h1>
+                    <p class="header-subtitle">Encuentra y descarga canciones sin infracciones de derechos de autor.</p>
+                </div>
+                
+                <div class="search-box">
+                    <input type="text" id="search-input" class="search-input" placeholder="Buscar canciones, artistas o álbumes...">
+                    <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                </div>
+                
+                <div class="filter-container">
+                    <span class="filter-label">Filtrar por Licencia:</span>
+                    <button class="filter-tag active" data-filter="all">Todas las Fuentes</button>
+                    <button class="filter-tag" data-filter="pd">Dominio Público</button>
+                    <button class="filter-tag" data-filter="cc">Creative Commons</button>
+                    <button class="filter-tag" data-filter="user">Catálogo Autorizado</button>
+                </div>
+                
+                <div class="results-grid" id="results-grid">
+                    <!-- Cards will be rendered here by app.js -->
+                </div>
+            </section>
+            
+            <!-- 2. Downloads Panel -->
+            <section id="download-section" class="view-section">
+                <div class="header-container">
+                    <h1 class="header-title">Descargas activas</h1>
+                    <p class="header-subtitle">Progreso y estado de las transferencias en cola.</p>
+                </div>
+                
+                <div class="download-sections">
+                    <div class="download-list" id="download-queue">
+                        <!-- Download items will be rendered here by app.js -->
+                    </div>
+                </div>
+            </section>
+            
+            <!-- 3. Library Panel -->
+            <section id="library-section" class="view-section">
+                <div class="header-container">
+                    <h1 class="header-title">Tu Biblioteca Local</h1>
+                    <p class="header-subtitle">Canciones descargadas legalmente y listas para reproducirse fuera de línea.</p>
+                </div>
+                
+                <div class="download-list" id="library-list">
+                    <!-- Library tracks will be rendered here by app.js -->
+                </div>
+            </section>
+            
+            <!-- 4. Settings Panel -->
+            <section id="settings-section" class="view-section">
+                <div class="header-container">
+                    <h1 class="header-title">Ajustes del Sistema</h1>
+                    <p class="header-subtitle">Configura los directorios, calidades y límites del motor de descarga.</p>
+                </div>
+                
+                <div class="settings-container">
+                    <div class="settings-card">
+                        <h2 class="settings-section-title">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                            Almacenamiento y Directorios
+                        </h2>
+                        <div class="form-group">
+                            <label class="form-label" for="dest-folder">Ruta de Descarga</label>
+                            <div class="form-control-row">
+                                <input type="text" id="dest-folder" class="form-control" readonly>
+                                <button class="btn btn-secondary" id="btn-browse">Examinar...</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="settings-card">
+                        <h2 class="settings-section-title">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                            Calidad de Medios y Formato
+                        </h2>
+                        
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                            <div class="form-group">
+                                <label class="form-label" for="pref-format">Formato de Audio</label>
+                                <select id="pref-format" class="form-control">
+                                    <option value="mp3">MP3 (.mp3)</option>
+                                    <option value="flac" selected>FLAC Lossless (.flac)</option>
+                                    <option value="aac">AAC (.m4a)</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label class="form-label" for="pref-quality">Calidad del Audio</label>
+                                <select id="pref-quality" class="form-control">
+                                    <option value="320">Alta (320 kbps)</option>
+                                    <option value="256">Media-Alta (256 kbps)</option>
+                                    <option value="128">Estándar (128 kbps)</option>
+                                    <option value="lossless" selected>Sin Pérdida (HiFi/Studio)</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="settings-card">
+                        <h2 class="settings-section-title">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                            Rendimiento y Red
+                        </h2>
+                        <div class="form-group">
+                            <label class="form-label" for="limit-concurrent">Descargas Simultáneas</label>
+                            <div class="slider-group">
+                                <input type="range" id="limit-concurrent" min="1" max="5" value="2">
+                                <span class="slider-val" id="val-concurrent">2</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer / Mini Audio Player -->
+        <footer class="footer-bar">
+            <!-- Left: Song details -->
+            <div class="footer-left">
+                <img id="player-cover" class="mini-player-cover" src="https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=100&q=80" alt="Sin reproducir">
+                <div class="mini-player-info">
+                    <div id="player-title" class="mini-player-title">Selecciona una pista</div>
+                    <div id="player-artist" class="mini-player-artist">Para iniciar la reproducción</div>
+                </div>
+            </div>
+            
+            <!-- Center: Timeline & Controls -->
+            <div class="footer-center">
+                <div class="player-controls">
+                    <button class="player-btn" title="Anterior">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></svg>
+                    </button>
+                    <button class="player-btn player-btn-main" id="btn-play" title="Reproducir / Pausa">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                    </button>
+                    <button class="player-btn" title="Siguiente">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
+                    </button>
+                </div>
+                <div class="player-timeline">
+                    <span id="time-current">00:00</span>
+                    <input type="range" id="timeline-slider" class="player-timeline-slider" min="0" max="100" value="0">
+                    <span id="time-total">00:00</span>
+                </div>
+            </div>
+            
+            <!-- Right: Download quick stats -->
+            <div class="footer-right">
+                <div class="mini-download-status" id="mini-dl-status" style="display: none;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="8 17 12 21 16 17"></polyline><line x1="12" y1="12" x2="12" y2="21"></line><path d="M20.88 18.04A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"></path></svg>
+                    <span>Descargando: <strong id="mini-dl-count">0</strong></span>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Global Toast Alert Container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <!-- Real HTML5 Audio Element -->
+    <audio id="real-audio-element" style="display:none;"></audio>
+
+    <!-- Main JavaScript Link -->
+    <script src="app.js"></script>
+</body>
+</html>
