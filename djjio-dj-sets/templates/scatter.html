@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block title %}Scatter Map · Djjio{% endblock %}
+{% block page_title %}Scatter Map{% endblock %}
+
+{% block extra_head %}
+<style>
+#content{overflow:hidden;position:relative}
+canvas{display:block;width:100%;height:100%}
+#scatter-info{position:absolute;top:16px;right:16px;width:210px;
+  background:rgba(6,6,6,.92);border:1px solid var(--border);
+  border-radius:10px;overflow:hidden;display:none;backdrop-filter:blur(14px)}
+#scatter-info.visible{display:block}
+#si-art{width:100%;aspect-ratio:1;object-fit:cover;display:block}
+#si-body{padding:12px}
+#si-title{font-size:12px;font-weight:600;color:#fff;margin-bottom:2px}
+#si-artist{font-size:11px;color:var(--muted);margin-bottom:8px}
+.si-row{color:var(--muted);margin:3px 0;font-size:11px;display:flex;justify-content:space-between}
+.si-row span:last-child{color:#aaa}
+.si-play{margin-top:10px;width:100%;padding:7px;border:none;border-radius:6px;
+  background:rgba(255,255,255,.1);color:#fff;font-size:12px;cursor:pointer}
+.si-play:hover{background:rgba(255,255,255,.18)}
+#scatter-loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  color:var(--muted);font-size:13px}
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="scatter-loading">Calculando proyección UMAP…</div>
+<canvas id="cv"></canvas>
+<div id="scatter-info">
+  <img id="si-art" src="" alt="">
+  <div id="si-body">
+    <div id="si-title">—</div>
+    <div id="si-artist">—</div>
+    <div class="si-row"><span>BPM</span><span id="si-bpm">—</span></div>
+    <div class="si-row"><span>Camelot</span><span id="si-cam">—</span></div>
+    <div class="si-row"><span>Energía</span><span id="si-e">—</span></div>
+    <div class="si-row"><span>Género</span><span id="si-g">—</span></div>
+    <button class="si-play" id="si-play-btn">&#9654; Reproducir</button>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let PTS=[], scale=1, ox=0, oy=0, drag=false, lx=0, ly=0;
+const cv=document.getElementById('cv');
+const ctx=cv.getContext('2d');
+const el=document.getElementById('content');
+
+function resize(){ cv.width=el.clientWidth; cv.height=el.clientHeight; draw(); }
+window.addEventListener('resize',resize);
+
+let minX,maxX,minY,maxY;
+function sx(x){ return 60+(x-minX)/(maxX-minX||1)*(cv.width-120); }
+function sy(y){ return 60+(y-minY)/(maxY-minY||1)*(cv.height-120); }
+
+function draw(){
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.clearRect(0,0,cv.width,cv.height);
+  ctx.setTransform(scale,0,0,scale,ox,oy);
+  PTS.forEach(p=>{
+    const px=sx(p.x),py=sy(p.y);
+    if(p.artwork){
+      const img=_imgCache[p.id];
+      if(img&&img.complete){
+        ctx.save();
+        ctx.beginPath(); ctx.arc(px,py,10,0,Math.PI*2); ctx.clip();
+        ctx.drawImage(img,px-10,py-10,20,20);
+        ctx.restore();
+        ctx.beginPath(); ctx.arc(px,py,10,0,Math.PI*2);
+        ctx.strokeStyle='rgba(255,255,255,.2)'; ctx.lineWidth=1.5; ctx.stroke();
+      }else{
+        drawDot(px,py,p.color);
+      }
+    }else{
+      drawDot(px,py,p.color);
+    }
+    if(p.id===window._playingId){
+      ctx.beginPath(); ctx.arc(px,py,13,0,Math.PI*2);
+      ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.stroke();
+    }
+  });
+}
+
+function drawDot(px,py,color){
+  ctx.beginPath(); ctx.arc(px,py,8,0,Math.PI*2);
+  ctx.fillStyle=color; ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,.15)'; ctx.lineWidth=1; ctx.stroke();
+}
+
+const _imgCache={};
+function preloadImages(){
+  PTS.forEach(p=>{
+    if(!p.artwork) return;
+    const img=new Image();
+    img.onload=()=>draw();
+    img.src=p.artwork;
+    _imgCache[p.id]=img;
+  });
+}
+
+function screenPt(mx,my){ return{x:(mx-ox)/scale,y:(my-oy)/scale}; }
+function findPt(mx,my){
+  const pt=screenPt(mx,my);
+  for(const p of PTS){
+    if(Math.hypot(sx(p.x)-pt.x,sy(p.y)-pt.y)<12) return p;
+  }
+  return null;
+}
+
+cv.addEventListener('mousemove',e=>{
+  const r=cv.getBoundingClientRect();
+  const p=findPt(e.clientX-r.left,e.clientY-r.top);
+  if(p) showInfo(p); else document.getElementById('scatter-info').classList.remove('visible');
+});
+
+function showInfo(p){
+  document.getElementById('si-art').src=p.artwork||'';
+  document.getElementById('si-title').textContent=p.title||p.name.replace(/\.[^.]+$/,'');
+  document.getElementById('si-artist').textContent=p.artist||'—';
+  document.getElementById('si-bpm').textContent=Math.round(p.bpm)+' BPM';
+  document.getElementById('si-cam').textContent=p.camelot;
+  document.getElementById('si-e').textContent=p.energy;
+  document.getElementById('si-g').textContent=p.genero;
+  document.getElementById('si-play-btn').onclick=()=>loadTrack(p.id,p.title||p.name,p.artist,p.artwork);
+  document.getElementById('scatter-info').classList.add('visible');
+}
+
+cv.addEventListener('mousedown',e=>{drag=true;lx=e.clientX;ly=e.clientY;});
+window.addEventListener('mouseup',()=>{drag=false;});
+window.addEventListener('mousemove',e=>{
+  if(!drag) return; ox+=e.clientX-lx; oy+=e.clientY-ly; lx=e.clientX; ly=e.clientY; draw();
+});
+window.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const r=cv.getBoundingClientRect();
+  const mx=e.clientX-r.left,my=e.clientY-r.top;
+  const delta=Math.sign(e.deltaY)*-0.12;
+  const ns=Math.max(0.15,Math.min(6,scale+delta));
+  ox=mx-(mx-ox)*(ns/scale); oy=my-(my-oy)*(ns/scale); scale=ns; draw();
+},{passive:false});
+
+window._onTrackLoad=()=>{ draw(); };
+
+fetch('/api/scatter').then(r=>r.json()).then(pts=>{
+  PTS=pts;
+  const xs=pts.map(p=>p.x), ys=pts.map(p=>p.y);
+  minX=Math.min(...xs); maxX=Math.max(...xs);
+  minY=Math.min(...ys); maxY=Math.max(...ys);
+  document.getElementById('scatter-loading').style.display='none';
+  resize();
+  preloadImages();
+});
+</script>
+{% endblock %}

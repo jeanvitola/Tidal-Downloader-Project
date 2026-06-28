@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="es"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Djjio{% endblock %}</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#000;--bg1:#080808;--bg2:#0f0f0f;--bg3:#181818;
+  --border:rgba(255,255,255,0.07);--text:#ddd;--muted:#555;--accent:#fff;
+  --sidebar:220px;
+}
+body{background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;display:flex;height:100vh;overflow:hidden}
+
+/* ── Sidebar ── */
+#sidebar{width:var(--sidebar);background:var(--bg1);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;flex-shrink:0;overflow:hidden}
+#sidebar .logo{padding:20px 20px 16px;font-size:14px;font-weight:800;letter-spacing:2px;color:#fff;
+  border-bottom:1px solid var(--border)}
+#sidebar nav{flex:1;padding:12px 0;overflow-y:auto}
+#sidebar nav a{display:flex;align-items:center;gap:12px;padding:10px 20px;
+  font-size:13px;color:var(--muted);text-decoration:none;transition:color .15s,background .15s;
+  border-left:2px solid transparent}
+#sidebar nav a:hover{color:var(--text);background:var(--bg2)}
+#sidebar nav a.active{color:#fff;background:var(--bg3);border-left-color:#fff}
+#sidebar nav a .icon{font-size:16px;width:20px;text-align:center;flex-shrink:0}
+#sidebar .lib-stats{padding:14px 20px;border-top:1px solid var(--border);font-size:11px;color:var(--muted);line-height:1.8}
+
+/* ── Main ── */
+#main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+#topbar{display:flex;align-items:center;gap:14px;padding:10px 20px;
+  background:var(--bg1);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap;min-height:46px}
+#topbar h1{font-size:14px;font-weight:600;color:#fff;margin-right:auto}
+.sep{width:1px;height:18px;background:var(--border)}
+.filter-group{display:flex;align-items:center;gap:8px;font-size:12px}
+.filter-group label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
+.filter-group input[type=number]{width:58px;background:rgba(255,255,255,.04);
+  border:1px solid var(--border);border-radius:4px;color:#ccc;padding:3px 7px;font-size:12px}
+.filter-group input[type=number]:focus{outline:none;border-color:rgba(255,255,255,.3)}
+.gpill{font-size:11px;padding:3px 10px;border-radius:20px;cursor:pointer;
+  border:1px solid var(--gc);color:var(--gc);background:transparent;
+  transition:background .15s,color .15s;white-space:nowrap}
+.gpill.active{background:var(--gc);color:#000}
+#content{flex:1;position:relative;overflow:hidden}
+
+/* ── Player bar ── */
+#playerbar{display:flex;align-items:center;gap:18px;padding:0 20px;height:64px;flex-shrink:0;
+  background:rgba(5,5,5,.98);border-top:1px solid var(--border);z-index:20}
+#pl-art{width:42px;height:42px;border-radius:6px;object-fit:cover;flex-shrink:0;background:#111}
+#pl-info{min-width:0;width:200px;flex-shrink:0}
+#pl-title{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#ddd}
+#pl-artist{font-size:11px;color:var(--muted);margin-top:2px}
+#pl-controls{display:flex;align-items:center;gap:10px}
+#pl-controls button{background:none;border:none;color:#666;cursor:pointer;font-size:15px;
+  padding:4px;border-radius:4px;transition:color .15s;display:flex;align-items:center}
+#pl-controls button:hover{color:#fff}
+#pl-play{width:38px;height:38px;border-radius:50%!important;justify-content:center!important;
+  background:#fff!important;color:#000!important;font-size:14px!important;padding:0!important}
+#pl-play:hover{background:#ddd!important}
+#pl-progress-wrap{flex:1;display:flex;align-items:center;gap:10px;min-width:0}
+#pl-time{font-size:11px;color:var(--muted);white-space:nowrap;min-width:90px;text-align:center}
+#pl-bar{flex:1;height:3px;background:rgba(255,255,255,.1);border-radius:2px;cursor:pointer}
+#pl-fill{height:100%;background:#fff;border-radius:2px;width:0%;pointer-events:none;transition:width .1s linear}
+#pl-vol{width:70px;accent-color:#666;cursor:pointer}
+
+/* ── Common components ── */
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:18px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:6px;border:none;
+  font-size:12px;cursor:pointer;transition:background .15s}
+.btn-ghost{background:rgba(255,255,255,.07);color:#ccc}
+.btn-ghost:hover{background:rgba(255,255,255,.12)}
+.btn-white{background:#fff;color:#000}
+.btn-white:hover{background:#ddd}
+.loading{display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:13px}
+.tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;
+  background:rgba(255,255,255,.06);color:var(--muted)}
+</style>
+{% block extra_head %}{% endblock %}
+</head><body>
+
+<div id="sidebar">
+  <div class="logo">DJJIO</div>
+  <nav>
+    <a href="/" class="{{ 'active' if request.path == '/' }}"><span class="icon">▣</span>Dashboard</a>
+    <a href="/graph" class="{{ 'active' if request.path == '/graph' }}"><span class="icon">◈</span>Graph Playlist</a>
+    <a href="/scatter" class="{{ 'active' if request.path == '/scatter' }}"><span class="icon">⊹</span>Scatter Map</a>
+    <a href="/chapters" class="{{ 'active' if request.path == '/chapters' }}"><span class="icon">≡</span>Chapter Builder</a>
+    <a href="/search" class="{{ 'active' if request.path == '/search' }}"><span class="icon">⌕</span>Search</a>
+    <a href="/groups" class="{{ 'active' if request.path == '/groups' }}"><span class="icon">⬡</span>Auto Groups</a>
+  </nav>
+  <div class="lib-stats" id="sidebar-stats">Cargando…</div>
+</div>
+
+<div id="main">
+  <div id="topbar">{% block topbar %}<h1>{% block page_title %}{% endblock %}</h1>{% endblock %}</div>
+  <div id="content">{% block content %}{% endblock %}</div>
+  <div id="playerbar">
+    <img id="pl-art" src="" alt="">
+    <div id="pl-info">
+      <div id="pl-title">Sin track</div>
+      <div id="pl-artist">—</div>
+    </div>
+    <div id="pl-controls">
+      <button id="pl-prev" title="Anterior">&#9664;&#9664;</button>
+      <button id="pl-play" title="Play/Pause">&#9654;</button>
+      <button id="pl-next" title="Siguiente">&#9654;&#9654;</button>
+    </div>
+    <div id="pl-progress-wrap">
+      <span id="pl-time">0:00 / 0:00</span>
+      <div id="pl-bar"><div id="pl-fill"></div></div>
+      <input type="range" id="pl-vol" min="0" max="1" step="0.01" value="0.8">
+    </div>
+  </div>
+</div>
+
+<audio id="audio"></audio>
+
+<script>
+// ── Global player ────────────────────────────────────────────
+const audio = document.getElementById('audio');
+audio.volume = 0.8;
+window._playingId = null;
+window._playHistory = [];
+window._nextFn = null;
+
+function fmt(s){
+  if(!isFinite(s)) return '0:00';
+  return Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0');
+}
+function loadTrack(id, title, artist, artwork, autoplay=true){
+  window._playHistory.push(window._playingId);
+  window._playingId = id;
+  audio.src = '/audio/'+id;
+  document.getElementById('pl-title').textContent  = title||'—';
+  document.getElementById('pl-artist').textContent = artist||'—';
+  document.getElementById('pl-art').src = artwork||'';
+  if(autoplay) audio.play().catch(()=>{});
+  if(window._onTrackLoad) window._onTrackLoad(id);
+}
+audio.addEventListener('timeupdate',()=>{
+  if(!audio.duration) return;
+  document.getElementById('pl-fill').style.width=(audio.currentTime/audio.duration*100)+'%';
+  document.getElementById('pl-time').textContent=fmt(audio.currentTime)+' / '+fmt(audio.duration);
+});
+audio.addEventListener('play',  ()=>{ document.getElementById('pl-play').innerHTML='&#9646;&#9646;'; });
+audio.addEventListener('pause', ()=>{ document.getElementById('pl-play').innerHTML='&#9654;'; });
+audio.addEventListener('ended', ()=>{ if(window._nextFn) window._nextFn(); });
+document.getElementById('pl-play').addEventListener('click',()=>{
+  if(!audio.src) return; audio.paused ? audio.play() : audio.pause();
+});
+document.getElementById('pl-prev').addEventListener('click',()=>{
+  const prev = window._playHistory.filter(x=>x!==null).pop();
+  if(prev===undefined) return;
+  window._playHistory=window._playHistory.slice(0,-1);
+  window._playingId=null;
+  const node = window._nodesById && window._nodesById[prev];
+  if(node) loadTrack(node.id, node.title||node.name, node.artist, node.artwork);
+});
+document.getElementById('pl-next').addEventListener('click',()=>{ if(window._nextFn) window._nextFn(); });
+document.getElementById('pl-bar').addEventListener('click',e=>{
+  if(!audio.duration) return;
+  const r=e.currentTarget.getBoundingClientRect();
+  audio.currentTime=((e.clientX-r.left)/r.width)*audio.duration;
+});
+document.getElementById('pl-vol').addEventListener('input',e=>{ audio.volume=+e.target.value; });
+
+// ── Sidebar stats ─────────────────────────────────────────────
+fetch('/api/library').then(r=>r.json()).then(lib=>{
+  const el=document.getElementById('sidebar-stats');
+  const bpms=lib.filter(f=>f.bpm).map(f=>f.bpm);
+  el.innerHTML=`${lib.length} tracks<br>${Math.round(Math.min(...bpms))}–${Math.round(Math.max(...bpms))} BPM`;
+});
+</script>
+{% block extra_js %}{% endblock %}
+</body></html>

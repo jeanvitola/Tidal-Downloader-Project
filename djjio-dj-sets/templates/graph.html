@@ -1,0 +1,254 @@
+{% extends "base.html" %}
+{% block title %}Graph Playlist · Djjio{% endblock %}
+{% block page_title %}Graph Playlist{% endblock %}
+
+{% block topbar %}
+<h1>Graph Playlist</h1>
+<div class="sep"></div>
+<div class="filter-group">
+  <label>BPM</label>
+  <input type="number" id="bpmMin" value="{{ bpm_min }}">
+  <span style="color:#333">—</span>
+  <input type="number" id="bpmMax" value="{{ bpm_max }}">
+</div>
+<div class="sep"></div>
+<div class="filter-group">
+  <label>K</label>
+  <input type="number" id="kVal" value="5" min="1" max="20" style="width:46px">
+</div>
+<div class="sep"></div>
+<div class="filter-group" style="gap:6px">
+  {% for g in generos %}
+  <button class="gpill active" data-genre="{{ g }}" style="--gc:#888">{{ g }}</button>
+  {% endfor %}
+</div>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+#content{overflow:hidden;position:relative}
+svg{width:100%;height:100%;display:block}
+.link{stroke:rgba(255,255,255,.08);fill:none;transition:opacity .2s}
+.link.highlighted{stroke:rgba(255,255,255,.45)}
+.link.dimmed{opacity:.02}
+.node{cursor:pointer}
+.node circle.shadow{fill:rgba(0,0,0,.5)}
+.node circle.border{fill:none;stroke:rgba(255,255,255,.15);stroke-width:1.5;transition:opacity .2s}
+.node circle.ring{fill:none;stroke:#fff;stroke-width:2.5;opacity:0;transition:opacity .25s}
+.node circle.pulse{fill:none;stroke:rgba(255,255,255,.5);stroke-width:1.5;opacity:0}
+.node.selected circle.ring{opacity:1}
+.node.playing circle.ring{opacity:1}
+.node.playing circle.pulse{animation:ripple 1.8s ease-out infinite}
+.node.dimmed image,.node.dimmed circle.border{opacity:.07}
+.node.dimmed circle.ring{opacity:0!important}
+.node.dimmed text{opacity:.06}
+.node text{pointer-events:none}
+.node text.ln{font-size:10px;fill:rgba(255,255,255,.5);text-anchor:middle}
+.node text.lart{font-size:9px;fill:rgba(255,255,255,.28);text-anchor:middle}
+.node .badge rect{fill:rgba(0,0,0,.75)}
+.node .badge text{font-size:9px;font-weight:700;fill:#fff;text-anchor:middle;dominant-baseline:central}
+@keyframes ripple{0%{opacity:.55}100%{opacity:0}}
+#infocard{position:absolute;top:16px;right:16px;width:220px;
+  background:rgba(6,6,6,.94);border:1px solid var(--border);
+  border-radius:12px;overflow:hidden;display:none;backdrop-filter:blur(16px)}
+#infocard.visible{display:block}
+#ic-art{width:100%;aspect-ratio:1;object-fit:cover;display:block}
+#ic-body{padding:14px}
+#ic-title{font-size:13px;font-weight:600;color:#fff;margin-bottom:2px;word-break:break-word;line-height:1.3}
+#ic-artist{font-size:11px;color:var(--muted);margin-bottom:10px}
+.ic-row{color:var(--muted);margin:4px 0;display:flex;justify-content:space-between;font-size:12px}
+.ic-row span:last-child{color:#aaa}
+.ic-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:middle}
+.ic-play{margin-top:12px;width:100%;padding:8px;border:none;border-radius:7px;
+  background:rgba(255,255,255,.1);color:#fff;font-size:12px;cursor:pointer;transition:background .15s}
+.ic-play:hover{background:rgba(255,255,255,.18)}
+#loading-msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  color:var(--muted);font-size:13px;pointer-events:none}
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="loading-msg">Cargando grafo…</div>
+<div id="infocard">
+  <img id="ic-art" src="" alt="">
+  <div id="ic-body">
+    <div id="ic-title">—</div>
+    <div id="ic-artist">—</div>
+    <div class="ic-row"><span>Camelot</span><span id="ic-camelot">—</span></div>
+    <div class="ic-row"><span>BPM</span><span id="ic-bpm">—</span></div>
+    <div class="ic-row"><span>Energía</span><span id="ic-energy">—</span></div>
+    <div class="ic-row"><span>Género</span><span id="ic-genre">—</span></div>
+    <button class="ic-play" id="ic-play-btn">&#9654; Reproducir</button>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const R = d => 26 + d.energy * 14;
+const graphEl = document.getElementById('content');
+let W = graphEl.clientWidth, H = graphEl.clientHeight;
+let NODES = [], EDGES = [], adj = {};
+let selectedId = null, playingId = null;
+
+const svg = d3.select('#content').append('svg');
+const zoomG = svg.append('g');
+svg.call(d3.zoom().scaleExtent([0.06,8]).on('zoom', e => zoomG.attr('transform', e.transform)));
+
+const defs = svg.append('defs');
+const filt = defs.append('filter').attr('id','shadow').attr('x','-30%').attr('y','-30%').attr('width','160%').attr('height','160%');
+filt.append('feDropShadow').attr('dx',0).attr('dy',2).attr('stdDeviation',6).attr('flood-color','rgba(0,0,0,.8)');
+
+let sim, linkSel, nodeSel;
+
+function initGraph(data){
+  NODES = data.nodes; EDGES = data.edges;
+  window._nodesById = Object.fromEntries(NODES.map(n => [n.id, n]));
+
+  // Clip paths
+  NODES.forEach(d => {
+    defs.append('clipPath').attr('id','clip_'+d.id).append('circle').attr('r', R(d));
+  });
+
+  adj = {};
+  NODES.forEach(n => { adj[n.id] = []; });
+  EDGES.forEach(e => {
+    const s = typeof e.source==='object'?e.source.id:e.source;
+    const t = typeof e.target==='object'?e.target.id:e.target;
+    adj[s].push({id:t,score:e.score});
+    adj[t].push({id:s,score:e.score});
+  });
+  Object.values(adj).forEach(a => a.sort((x,y)=>y.score-x.score));
+
+  sim = d3.forceSimulation(NODES)
+    .force('link', d3.forceLink(EDGES).id(d=>d.id).distance(d=>200-d.score*130).strength(0.42))
+    .force('charge', d3.forceManyBody().strength(-500))
+    .force('center', d3.forceCenter(W/2, H/2))
+    .force('collision', d3.forceCollide(d=>R(d)+10));
+
+  linkSel = zoomG.append('g').selectAll('line').data(EDGES).join('line')
+    .attr('class','link').attr('stroke-width', d=>Math.max(0.5, d.score*2.5));
+
+  nodeSel = zoomG.append('g').selectAll('g').data(NODES).join('g').attr('class','node')
+    .call(d3.drag()
+      .on('start',(e,d)=>{ if(!e.active) sim.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; })
+      .on('drag', (e,d)=>{ d.fx=e.x; d.fy=e.y; })
+      .on('end',  (e,d)=>{ if(!e.active) sim.alphaTarget(0); d.fx=null; d.fy=null; }));
+
+  nodeSel.append('circle').attr('class','shadow').attr('r',d=>R(d)+3).attr('filter','url(#shadow)');
+  nodeSel.append('image').attr('href',d=>d.artwork||'')
+    .attr('x',d=>-R(d)).attr('y',d=>-R(d))
+    .attr('width',d=>R(d)*2).attr('height',d=>R(d)*2)
+    .attr('clip-path',d=>'url(#clip_'+d.id+')')
+    .attr('preserveAspectRatio','xMidYMid slice');
+  nodeSel.append('circle').attr('class','border').attr('r',R);
+  nodeSel.append('circle').attr('class','ring').attr('r',d=>R(d)+5);
+  nodeSel.append('circle').attr('class','pulse').attr('r',d=>R(d)+12);
+
+  const badge = nodeSel.append('g').attr('class','badge');
+  badge.append('rect').attr('x',d=>R(d)*.45).attr('y',d=>R(d)*.45).attr('width',22).attr('height',14).attr('rx',4)
+    .attr('fill',d=>d.color+'cc');
+  badge.append('text').attr('x',d=>R(d)*.45+11).attr('y',d=>R(d)*.45+7).text(d=>d.camelot);
+
+  nodeSel.append('text').attr('class','ln').attr('dy',d=>R(d)+14).text(d=>(d.title||d.name.replace(/\.[^.]+$/,'')).slice(0,22));
+  nodeSel.append('text').attr('class','lart').attr('dy',d=>R(d)+25).text(d=>d.artist?d.artist.slice(0,20):'');
+
+  sim.on('tick',()=>{
+    linkSel.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y)
+            .attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
+    nodeSel.attr('transform',d=>'translate('+d.x+','+d.y+')');
+  });
+
+  nodeSel.on('click',(e,d)=>{
+    e.stopPropagation();
+    if(selectedId===d.id){ selectedId=null; clearHL(); document.getElementById('infocard').classList.remove('visible'); return; }
+    selectedId=d.id; highlightNode(d.id); showCard(d);
+  });
+  svg.on('click',()=>{ selectedId=null; clearHL(); document.getElementById('infocard').classList.remove('visible'); });
+
+  // next fn for player
+  window._nextFn = ()=>{
+    if(playingId===null) return;
+    const nb=(adj[playingId]||[]).find(a=>a.id!==playingId);
+    if(nb) playNode(window._nodesById[nb.id]);
+  };
+
+  document.getElementById('loading-msg').style.display='none';
+}
+
+function highlightNode(id){
+  const conn=new Set([id]); (adj[id]||[]).forEach(a=>conn.add(a.id));
+  nodeSel.classed('selected',d=>d.id===id&&d.id!==playingId)
+         .classed('playing',d=>d.id===playingId).classed('dimmed',d=>!conn.has(d.id));
+  linkSel.classed('highlighted',e=>{
+    const s=typeof e.source==='object'?e.source.id:e.source;
+    const t=typeof e.target==='object'?e.target.id:e.target;
+    return s===id||t===id;
+  }).classed('dimmed',e=>{
+    const s=typeof e.source==='object'?e.source.id:e.source;
+    const t=typeof e.target==='object'?e.target.id:e.target;
+    return s!==id&&t!==id;
+  });
+}
+function clearHL(){
+  nodeSel.classed('selected',false).classed('dimmed',false).classed('playing',d=>d.id===playingId);
+  linkSel.classed('highlighted',false).classed('dimmed',false);
+}
+function showCard(d){
+  document.getElementById('ic-art').src=d.artwork||'';
+  document.getElementById('ic-title').textContent=d.title||d.name.replace(/\.[^.]+$/,'');
+  document.getElementById('ic-artist').textContent=d.artist||'—';
+  document.getElementById('ic-camelot').textContent=d.camelot;
+  document.getElementById('ic-bpm').textContent=Math.round(d.bpm)+' BPM';
+  document.getElementById('ic-energy').textContent=d.energy;
+  document.getElementById('ic-genre').innerHTML='<span class="ic-dot" style="background:'+d.color+'"></span>'+d.genero;
+  document.getElementById('ic-play-btn').onclick=()=>playNode(d);
+  document.getElementById('infocard').classList.add('visible');
+}
+function playNode(d){
+  playingId=d.id;
+  loadTrack(d.id, d.title||d.name.replace(/\.[^.]+$/,''), d.artist, d.artwork);
+  nodeSel.classed('playing',n=>n.id===playingId).classed('selected',n=>n.id===selectedId&&n.id!==playingId);
+}
+window._onTrackLoad = id=>{ playingId=id; if(nodeSel) nodeSel.classed('playing',n=>n.id===id); };
+
+function applyFilters(){
+  if(!nodeSel) return;
+  const bMin=+document.getElementById('bpmMin').value;
+  const bMax=+document.getElementById('bpmMax').value;
+  const active=new Set(Array.from(document.querySelectorAll('.gpill.active')).map(b=>b.dataset.genre));
+  const vis=new Set(NODES.filter(n=>n.bpm>=bMin&&n.bpm<=bMax&&active.has(n.genero)).map(n=>n.id));
+  nodeSel.classed('dimmed',d=>!vis.has(d.id));
+  linkSel.classed('dimmed',e=>{
+    const s=typeof e.source==='object'?e.source.id:e.source;
+    const t=typeof e.target==='object'?e.target.id:e.target;
+    return !vis.has(s)||!vis.has(t);
+  }).classed('highlighted',false);
+}
+document.getElementById('bpmMin').addEventListener('input',applyFilters);
+document.getElementById('bpmMax').addEventListener('input',applyFilters);
+document.querySelectorAll('.gpill').forEach(b=>b.addEventListener('click',()=>{ b.classList.toggle('active'); applyFilters(); }));
+
+let loadTimeout;
+document.getElementById('kVal').addEventListener('change',()=>{
+  clearTimeout(loadTimeout);
+  loadTimeout=setTimeout(loadGraph,300);
+});
+
+function loadGraph(){
+  const k=document.getElementById('kVal').value||5;
+  document.getElementById('loading-msg').style.display='flex';
+  if(sim) sim.stop();
+  zoomG.selectAll('*').remove();
+  defs.selectAll('clipPath').remove();
+  fetch('/api/graph?k='+k).then(r=>r.json()).then(initGraph);
+}
+
+window.addEventListener('resize',()=>{
+  W=graphEl.clientWidth; H=graphEl.clientHeight;
+  if(sim) sim.force('center',d3.forceCenter(W/2,H/2)).alpha(0.1).restart();
+});
+
+loadGraph();
+</script>
+{% endblock %}

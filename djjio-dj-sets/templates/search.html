@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}Search · Djjio{% endblock %}
+{% block page_title %}Search{% endblock %}
+
+{% block extra_head %}
+<style>
+#content{overflow-y:auto;padding:28px}
+#search-box{display:flex;gap:10px;margin-bottom:24px;max-width:600px}
+#search-input{flex:1;background:var(--bg2);border:1px solid var(--border);border-radius:8px;
+  color:#fff;padding:10px 16px;font-size:14px;outline:none;transition:border-color .15s}
+#search-input:focus{border-color:rgba(255,255,255,.3)}
+#search-input::placeholder{color:var(--muted)}
+#search-btn{padding:10px 20px;border-radius:8px;border:none;background:#fff;color:#000;
+  font-size:13px;font-weight:600;cursor:pointer;transition:background .15s}
+#search-btn:hover{background:#ddd}
+#search-note{font-size:12px;color:var(--muted);margin-bottom:20px}
+.result-list{display:flex;flex-direction:column;gap:8px;max-width:700px}
+.result-item{display:flex;align-items:center;gap:14px;background:var(--bg2);
+  border:1px solid var(--border);border-radius:10px;padding:12px 16px;cursor:pointer;
+  transition:background .15s;position:relative}
+.result-item:hover{background:var(--bg3)}
+.result-art{width:44px;height:44px;border-radius:6px;object-fit:cover;flex-shrink:0;background:#111}
+.result-info{flex:1;min-width:0}
+.result-title{font-size:13px;font-weight:600;color:#ddd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.result-sub{font-size:11px;color:var(--muted);margin-top:3px}
+.result-tags{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
+.result-score{font-size:11px;color:var(--muted);font-family:monospace;flex-shrink:0}
+.play-btn{background:rgba(255,255,255,.08);border:none;border-radius:50%;
+  width:32px;height:32px;display:flex;align-items:center;justify-content:center;
+  cursor:pointer;color:#fff;font-size:12px;flex-shrink:0;transition:background .15s}
+.play-btn:hover{background:rgba(255,255,255,.18)}
+#no-mulan{background:var(--bg2);border:1px solid var(--border);border-radius:8px;
+  padding:16px 20px;font-size:13px;color:var(--muted);max-width:500px}
+#no-mulan code{background:var(--bg3);padding:2px 6px;border-radius:4px;font-size:12px;color:#ccc}
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="search-box">
+  <input id="search-input" type="text" placeholder="dark energetic techno 130 BPM…" {% if not has_mulan %}disabled{% endif %}>
+  <button id="search-btn" {% if not has_mulan %}disabled{% endif %}>Buscar</button>
+</div>
+
+{% if not has_mulan %}
+<div id="no-mulan">
+  El índice MuLan no existe todavía.<br>
+  Ejecuta: <code>python build_mulan_index.py</code><br>
+  Luego reinicia el servidor y podrás hacer búsquedas semánticas.
+</div>
+{% else %}
+<p id="search-note">Búsqueda semántica — describe el vibe, género, energía o BPM que buscas.</p>
+<div class="result-list" id="results"></div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+{% if has_mulan %}
+<script>
+async function doSearch(){
+  const q=document.getElementById('search-input').value.trim();
+  if(!q) return;
+  document.getElementById('results').innerHTML='<div style="color:var(--muted);font-size:13px">Buscando… (cargando modelo la primera vez puede tardar)</div>';
+  document.getElementById('search-btn').disabled=true;
+
+  try{
+    const res=await fetch('/api/search',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({query:q,k:12})});
+    const data=await res.json();
+    if(data.error){ document.getElementById('results').innerHTML='<div style="color:#c44">'+data.error+'</div>'; return; }
+    renderResults(data);
+  }catch(e){
+    document.getElementById('results').innerHTML='<div style="color:#c44">Error: '+e+'</div>';
+  }finally{
+    document.getElementById('search-btn').disabled=false;
+  }
+}
+
+function renderResults(items){
+  const list=document.getElementById('results');
+  list.innerHTML='';
+  items.forEach(item=>{
+    const el=document.createElement('div');
+    el.className='result-item';
+    el.innerHTML=
+      '<img class="result-art" src="'+(item.artwork||'')+'" alt="">'
+      +'<div class="result-info">'
+        +'<div class="result-title">'+(item.title||'—')+'</div>'
+        +'<div class="result-sub">'+(item.artist||'')+(item.artist?' · ':'')+item.genero+'</div>'
+        +'<div class="result-tags">'
+          +'<span class="tag">'+item.camelot+'</span>'
+          +'<span class="tag">'+Math.round(item.bpm)+' BPM</span>'
+          +'<span class="tag">E: '+item.energy+'</span>'
+        +'</div>'
+      +'</div>'
+      +'<span class="result-score">'+item.score.toFixed(3)+'</span>'
+      +'<button class="play-btn">&#9654;</button>';
+    el.querySelector('.play-btn').addEventListener('click',e=>{
+      e.stopPropagation();
+      loadTrack(item.id, item.title, item.artist, item.artwork);
+    });
+    list.appendChild(el);
+  });
+}
+
+document.getElementById('search-btn').addEventListener('click', doSearch);
+document.getElementById('search-input').addEventListener('keydown', e=>{ if(e.key==='Enter') doSearch(); });
+</script>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,21 @@
+# Entornos virtuales
+venv/
+env/
+__pycache__/
+*.pyc
+
+# Datos generados e índices
+index/
+music/
+exports/
+groups.json
+chapters.json
+
+# HTMLs generados
+chapters.html
+graph_playlist.html
+scatter_groups.html
+scatter_map.html
+
+# Archivos del sistema
+.DS_Store
