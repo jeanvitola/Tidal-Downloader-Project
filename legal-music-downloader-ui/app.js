@@ -812,13 +812,377 @@ function showToast(message) {
         <span class="toast-message">${message}</span>
     `;
     elements.toastContainer.appendChild(toast);
-    
-    // Remove toast after 3 seconds
     setTimeout(() => {
         toast.style.transform = "translateX(120%)";
         toast.style.opacity = "0";
-        setTimeout(() => {
-            elements.toastContainer.removeChild(toast);
-        }, 300);
+        setTimeout(() => { elements.toastContainer.removeChild(toast); }, 300);
     }, 3000);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 8. DJ TOOLS — Preparar Set + Mood Search
+// ════════════════════════════════════════════════════════════════════════════
+
+// Hook into navigation to load DJ data on tab switch
+const _originalSwitchTab = switchTab;
+function switchTab(tabName) {
+    _originalSwitchTab(tabName);
+    if (tabName === 'djsets') initDjSets();
+    if (tabName === 'moodsearch') initMoodSearch();
+}
+
+// ── DJ Sets: Stats + Graph ────────────────────────────────────────────────
+
+let djGraphData = null;
+let djSimulation = null;
+
+async function initDjSets() {
+    // Load stats
+    try {
+        const res = await fetch('/api/dj/stats');
+        const stats = await res.json();
+        updateDjStats(stats);
+        if (stats.ready) {
+            document.getElementById('dj-setup-card').style.display = 'none';
+            document.getElementById('dj-graph-controls').style.display = 'flex';
+            document.getElementById('dj-tracklist-section').style.display = 'block';
+            loadDjGraph();
+            loadDjTrackList();
+        } else {
+            document.getElementById('dj-setup-card').style.display = 'flex';
+            document.getElementById('dj-graph-controls').style.display = 'none';
+            document.getElementById('dj-tracklist-section').style.display = 'none';
+            hideDjGraphLoading();
+        }
+    } catch(e) {
+        document.getElementById('dj-setup-card').style.display = 'flex';
+        document.getElementById('dj-graph-controls').style.display = 'none';
+        hideDjGraphLoading();
+    }
+
+    // K slider
+    const kSlider = document.getElementById('dj-k-slider');
+    const kVal = document.getElementById('dj-k-val');
+    if (kSlider && !kSlider._djInited) {
+        kSlider._djInited = true;
+        kSlider.addEventListener('input', () => { kVal.innerText = kSlider.value; });
+    }
+}
+
+function updateDjStats(stats) {
+    document.getElementById('dj-stat-total').innerText = stats.total || '—';
+    document.getElementById('dj-stat-bpm').innerText = stats.ready
+        ? `${stats.bpm_min}–${stats.bpm_max}` : '—';
+    document.getElementById('dj-stat-genres').innerText = stats.ready
+        ? (stats.generos || []).length : '—';
+    document.getElementById('dj-stat-embeddings').innerText = stats.has_mulan
+        ? '🟢 MuLan' : (stats.has_embeddings ? '🟡 Base' : '⚪ Sin índice');
+}
+
+function hideDjGraphLoading() {
+    const el = document.getElementById('dj-graph-loading');
+    if (el) el.style.display = 'none';
+}
+
+async function loadDjGraph() {
+    const loading = document.getElementById('dj-graph-loading');
+    const k = document.getElementById('dj-k-slider')?.value || 5;
+    if (loading) loading.style.display = 'flex';
+
+    try {
+        const res = await fetch(`/api/dj/graph?k=${k}`);
+        djGraphData = await res.json();
+        if (loading) loading.style.display = 'none';
+        renderDjGraph(djGraphData);
+        buildDjLegend(djGraphData.nodes);
+    } catch(e) {
+        if (loading) {
+            loading.innerHTML = `<span style="color:var(--danger)">Error cargando grafo: ${e.message}</span>`;
+        }
+    }
+}
+
+function buildDjLegend(nodes) {
+    const genres = [...new Set(nodes.map(n => n.genero))];
+    const legendEl = document.getElementById('dj-graph-legend');
+    legendEl.innerHTML = genres.map(g => {
+        const color = nodes.find(n => n.genero === g)?.color || '#888';
+        return `<div class="dj-legend-item">
+            <div class="dj-legend-dot" style="background:${color}"></div>
+            <span>${g}</span>
+        </div>`;
+    }).join('');
+}
+
+function renderDjGraph(data) {
+    const container = document.getElementById('dj-graph-container');
+    const svg = d3.select('#dj-graph-svg');
+    svg.selectAll('*').remove();
+
+    const W = container.clientWidth;
+    const H = container.clientHeight;
+    const tooltip = document.getElementById('dj-tooltip');
+
+    // Stop previous simulation
+    if (djSimulation) djSimulation.stop();
+
+    const svgEl = svg
+        .attr('width', W)
+        .attr('height', H)
+        .call(d3.zoom().scaleExtent([0.3, 3]).on('zoom', (e) => {
+            g.attr('transform', e.transform);
+        }));
+
+    const g = svgEl.append('g');
+
+    // Build edges with score threshold
+    const maxScore = Math.max(...data.edges.map(e => e.score));
+    const links = data.edges.map(e => ({
+        ...e,
+        strong: e.score > maxScore * 0.7
+    }));
+
+    // Draw links
+    const link = g.append('g').selectAll('line')
+        .data(links).join('line')
+        .attr('class', d => `dj-link${d.strong ? ' strong' : ''}`);
+
+    // Draw nodes
+    const node = g.append('g').selectAll('g')
+        .data(data.nodes).join('g')
+        .attr('class', 'dj-node')
+        .call(d3.drag()
+            .on('start', (e, d) => {
+                if (!e.active) djSimulation.alphaTarget(0.3).restart();
+                d.fx = d.x; d.fy = d.y;
+            })
+            .on('drag', (e, d) => { d.fx = e.x; d.fy = e.y; })
+            .on('end', (e, d) => {
+                if (!e.active) djSimulation.alphaTarget(0);
+                d.fx = null; d.fy = null;
+            })
+        );
+
+    // Energy-based radius
+    node.append('circle')
+        .attr('r', d => 6 + (d.energy || 0.5) * 8)
+        .attr('fill', d => d.color)
+        .attr('fill-opacity', 0.85)
+        .attr('stroke', d => d.color)
+        .attr('stroke-width', 2)
+        .attr('stroke-opacity', 0.4)
+        .on('mouseover', (e, d) => {
+            const rect = container.getBoundingClientRect();
+            tooltip.classList.add('visible');
+            tooltip.style.left = (e.clientX - rect.left + 12) + 'px';
+            tooltip.style.top = (e.clientY - rect.top - 10) + 'px';
+            tooltip.innerHTML = `
+                <div class="dj-tooltip-title">${d.title}</div>
+                <div class="dj-tooltip-meta">
+                    🎤 ${d.artist || '—'}<br>
+                    🎵 ${d.genero} &nbsp;•&nbsp; ⚡ ${Math.round((d.energy||0)*100)}%<br>
+                    🥁 ${d.bpm || '?'} BPM &nbsp;•&nbsp; 🔑 ${d.camelot || '?'}
+                </div>`;
+        })
+        .on('mouseout', () => tooltip.classList.remove('visible'))
+        .on('click', (e, d) => {
+            showToast(`${d.title} — ${d.bpm} BPM · ${d.camelot}`);
+        });
+
+    // Label (truncated)
+    node.append('text')
+        .attr('dy', d => 10 + (d.energy || 0.5) * 8)
+        .attr('text-anchor', 'middle')
+        .text(d => d.title.length > 14 ? d.title.substring(0, 13) + '…' : d.title);
+
+    // Force simulation
+    djSimulation = d3.forceSimulation(data.nodes)
+        .force('link', d3.forceLink(links).id(d => d.id).distance(80))
+        .force('charge', d3.forceManyBody().strength(-120))
+        .force('center', d3.forceCenter(W / 2, H / 2))
+        .force('collision', d3.forceCollide().radius(d => 12 + (d.energy || 0.5) * 10))
+        .on('tick', () => {
+            link
+                .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+                .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+            node.attr('transform', d => `translate(${d.x},${d.y})`);
+        });
+}
+
+async function loadDjTrackList() {
+    const listEl = document.getElementById('dj-track-list');
+    listEl.innerHTML = '';
+    try {
+        const res = await fetch('/api/dj/library');
+        const tracks = await res.json();
+        if (!tracks.length) {
+            listEl.innerHTML = '<p style="color:var(--text-muted); padding:20px;">No hay tracks en la biblioteca.</p>';
+            return;
+        }
+        tracks.slice(0, 30).forEach((t, i) => {
+            const energyPct = Math.round((t.energy || 0) * 100);
+            const energyDots = Array.from({length: 5}, (_, k) =>
+                `<div class="energy-dot${k < Math.round((t.energy||0)*5) ? ' active' : ''}"></div>`
+            ).join('');
+            const row = document.createElement('div');
+            row.className = 'download-item';
+            row.innerHTML = `
+                <div style="width:36px;height:36px;border-radius:8px;background:${djGraphData?.nodes?.[i]?.color || 'var(--bg-surface-elevated)'};display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0">🎵</div>
+                <div class="download-item-details">
+                    <span class="download-item-name">${t.title || t.path?.split(/[\\/]/).pop() || '—'}</span>
+                    <span class="download-item-artist">${t.artist || ''} ${t.genero ? '· ' + t.genero : ''}</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;margin-right:10px;">
+                    <span class="bpm-badge">${t.bpm || '?'} BPM</span>
+                    <span class="camelot-badge">${t.camelot || '?'}</span>
+                    <div class="energy-bar-mini">
+                        <div class="energy-dots">${energyDots}</div>
+                        <span>${energyPct}%</span>
+                    </div>
+                </div>
+                <button class="btn btn-secondary btn-icon-only" onclick="playDjTrack(${i})" title="Reproducir">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                </button>`;
+            listEl.appendChild(row);
+        });
+    } catch(e) {
+        listEl.innerHTML = `<p style="color:var(--danger);padding:20px;">Error cargando biblioteca: ${e.message}</p>`;
+    }
+}
+
+function playDjTrack(id) {
+    elements.realAudioElement.src = `/api/dj/audio/${id}`;
+    elements.realAudioElement.load();
+    elements.realAudioElement.play().catch(() => {
+        showToast('No se pudo reproducir el archivo de audio local.');
+    });
+    showToast(`Reproduciendo track #${id} de la biblioteca DJ`);
+}
+
+async function startDjAnalysis() {
+    const folder = document.getElementById('dj-folder-input').value.trim();
+    if (!folder) { showToast('Por favor, introduce la ruta de tu carpeta de música.'); return; }
+    const btn = document.getElementById('btn-dj-analyze');
+    btn.disabled = true;
+    btn.textContent = 'Analizando...';
+    try {
+        const res = await fetch('/api/dj/analyze', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({folder})
+        });
+        const data = await res.json();
+        if (data.error) { showToast('Error: ' + data.error); }
+        else { showToast(data.message || 'Análisis iniciado en segundo plano. Recarga en unos minutos.'); }
+    } catch(e) {
+        showToast('Error iniciando análisis: ' + e.message);
+    }
+    btn.disabled = false;
+    btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> Analizar';
+}
+
+// ── Mood Search ───────────────────────────────────────────────────────────
+
+function initMoodSearch() {
+    // Nothing to auto-load, user triggers search
+}
+
+function setMoodQuery(text) {
+    document.getElementById('mood-query').value = text;
+    document.getElementById('mood-query').focus();
+}
+
+async function runMoodSearch() {
+    const query = document.getElementById('mood-query').value.trim();
+    if (!query) { showToast('Escribe un mood o vibe antes de buscar.'); return; }
+    const k = parseInt(document.getElementById('mood-k').value);
+    const btn = document.getElementById('btn-mood-search');
+    const emptyState = document.getElementById('mood-empty-state');
+    const resultsList = document.getElementById('mood-results-list');
+
+    btn.disabled = true;
+    btn.textContent = 'Buscando...';
+    emptyState.style.display = 'none';
+    resultsList.style.display = 'none';
+    resultsList.innerHTML = '<div class="dj-graph-loading" style="position:relative;height:100px;background:transparent"><div class="dj-spinner"></div><span>Procesando con IA...</span></div>';
+    resultsList.style.display = 'block';
+
+    try {
+        const res = await fetch('/api/dj/mood-search', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({query, k})
+        });
+        const data = await res.json();
+
+        if (data.error) {
+            resultsList.innerHTML = `
+                <div class="dj-setup-card" style="border-color:rgba(239,68,68,0.3)">
+                    <div class="dj-setup-icon">⚠️</div>
+                    <h2>${data.setup_needed ? 'Configuración necesaria' : 'Error'}</h2>
+                    <p>${data.error}</p>
+                    ${data.setup_needed ? `<code style="background:rgba(255,255,255,0.06);padding:8px 14px;border-radius:8px;color:var(--primary);font-family:monospace;font-size:0.85rem;">pip install muq torch librosa</code>` : ''}
+                </div>`;
+            btn.disabled = false;
+            btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Buscar';
+            return;
+        }
+
+        if (!data.length) {
+            resultsList.innerHTML = '<p style="color:var(--text-muted);padding:32px;text-align:center;">No se encontraron resultados. Intenta con otro mood.</p>';
+        } else {
+            renderMoodResults(data, query);
+        }
+    } catch(e) {
+        resultsList.innerHTML = `<p style="color:var(--danger);padding:32px;text-align:center;">Error: ${e.message}</p>`;
+    }
+
+    btn.disabled = false;
+    btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Buscar';
+}
+
+function renderMoodResults(results, query) {
+    const resultsList = document.getElementById('mood-results-list');
+    const maxScore = Math.max(...results.map(r => r.score));
+
+    resultsList.innerHTML = `
+        <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:16px;">
+            🎯 Resultados para <strong style="color:var(--primary);">"${query}"</strong> — ${results.length} tracks encontrados
+        </p>`;
+
+    results.forEach((r, i) => {
+        const scorePct = Math.round((r.score / Math.max(maxScore, 0.001)) * 100);
+        const energyDots = Array.from({length: 5}, (_, k) =>
+            `<div class="energy-dot${k < Math.round((r.energy||0)*5) ? ' active' : ''}"></div>`
+        ).join('');
+
+        const item = document.createElement('div');
+        item.className = 'mood-result-item';
+        item.style.animationDelay = `${i * 0.05}s`;
+        item.innerHTML = `
+            <div class="mood-result-rank">#${i+1}</div>
+            <div style="width:44px;height:44px;border-radius:10px;background:${r.color || '#333'};display:flex;align-items:center;justify-content:center;font-size:1.2rem;flex-shrink:0">🎵</div>
+            <div class="download-item-details">
+                <span class="download-item-name">${r.title}</span>
+                <span class="download-item-artist">${r.artist || '—'}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+                <span class="genre-chip" style="color:${r.color || '#888'};border-color:${r.color || '#888'}22">${r.genero}</span>
+                <span class="bpm-badge">${r.bpm || '?'} BPM</span>
+                <span class="camelot-badge">${r.camelot || '?'}</span>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex-shrink:0;">
+                <div class="mood-result-score-bar">
+                    <div class="mood-result-score-fill" style="width:${scorePct}%"></div>
+                </div>
+                <span class="mood-score-label">${Math.round(r.score * 100)}% match</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px;align-items:center;flex-shrink:0;">
+                <div class="energy-bar-mini"><div class="energy-dots">${energyDots}</div></div>
+            </div>
+            <button class="btn btn-secondary btn-icon-only" onclick="playDjTrack(${r.id})" title="Reproducir">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            </button>`;
+        resultsList.appendChild(item);
+    });
 }

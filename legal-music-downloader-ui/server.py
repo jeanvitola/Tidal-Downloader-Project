@@ -1,22 +1,31 @@
-import http.server
-import socketserver
+"""
+AetherMusic + Djjio — Servidor Unificado Flask
+Puerto 8000 | Búsqueda Tidal + Preparación de Sets DJ con IA
+"""
 import json
-import urllib.parse
+import os
+import gc
+import time
 import subprocess
 import sys
-import os
-from pathlib import Path
 import shutil
-from tidal_mvp.cli import get_session
+import urllib.parse
+import urllib.request as ureq
+import numpy as np
+from pathlib import Path
+from flask import Flask, jsonify, render_template, send_file, request, abort, Response, send_from_directory
 
+# ── Flask App ────────────────────────────────────────────────────────────────
+app = Flask(__name__, static_folder=str(Path(__file__).parent), template_folder=str(Path(__file__).parent))
+BASE_DIR = Path(__file__).parent
+INDEX_DIR = BASE_DIR / "index"
+
+# ── FFmpeg helper ─────────────────────────────────────────────────────────────
 def locate_ffmpeg_and_update_path():
     try:
-        # Check if ffmpeg is already on PATH
         if shutil.which("ffmpeg"):
             print("[FFmpeg] Already found on PATH")
             return
-            
-        # Search in Microsoft WinGet Packages
         winget_path = Path.home() / "AppData" / "Local" / "Microsoft" / "WinGet" / "Packages"
         if winget_path.exists():
             ffmpeg_exes = list(winget_path.glob("**/ffmpeg.exe"))
@@ -31,467 +40,469 @@ def locate_ffmpeg_and_update_path():
 
 locate_ffmpeg_and_update_path()
 
-PORT = 8000
-ACTIVE_DOWNLOADS = {}  # track_id -> Popen object
+# ── Active downloads tracking ─────────────────────────────────────────────────
+ACTIVE_DOWNLOADS = {}
 
-
-# Camelot Key mappings (Musical Key, Scale -> Camelot Code)
+# ── Camelot Key Map ───────────────────────────────────────────────────────────
 CAMELOT_MAP = {
-    # MAJOR (B)
-    ('C', 'MAJOR'): '8B',
-    ('C#', 'MAJOR'): '3B',
-    ('DB', 'MAJOR'): '3B',
-    ('D', 'MAJOR'): '10B',
-    ('D#', 'MAJOR'): '5B',
-    ('EB', 'MAJOR'): '5B',
-    ('E', 'MAJOR'): '12B',
-    ('F', 'MAJOR'): '7B',
-    ('F#', 'MAJOR'): '2B',
-    ('GB', 'MAJOR'): '2B',
-    ('G', 'MAJOR'): '9B',
-    ('G#', 'MAJOR'): '4B',
-    ('AB', 'MAJOR'): '4B',
-    ('A', 'MAJOR'): '11B',
-    ('A#', 'MAJOR'): '6B',
-    ('BB', 'MAJOR'): '6B',
-    ('B', 'MAJOR'): '1B',
-    ('CB', 'MAJOR'): '1B',
-
-    # MINOR (A)
-    ('C', 'MINOR'): '5A',
-    ('C#', 'MINOR'): '12A',
-    ('DB', 'MINOR'): '12A',
-    ('D', 'MINOR'): '7A',
-    ('D#', 'MINOR'): '2A',
-    ('EB', 'MINOR'): '2A',
-    ('E', 'MINOR'): '9A',
-    ('F', 'MINOR'): '4A',
-    ('F#', 'MINOR'): '11A',
-    ('GB', 'MINOR'): '11A',
-    ('G', 'MINOR'): '6A',
-    ('G#', 'MINOR'): '1A',
-    ('AB', 'MINOR'): '1A',
-    ('A', 'MINOR'): '8A',
-    ('A#', 'MINOR'): '3A',
-    ('BB', 'MINOR'): '3A',
-    ('B', 'MINOR'): '10A',
-    ('CB', 'MINOR'): '10A',
+    ('C', 'MAJOR'): '8B',  ('C#', 'MAJOR'): '3B',  ('DB', 'MAJOR'): '3B',
+    ('D', 'MAJOR'): '10B', ('D#', 'MAJOR'): '5B',  ('EB', 'MAJOR'): '5B',
+    ('E', 'MAJOR'): '12B', ('F', 'MAJOR'): '7B',   ('F#', 'MAJOR'): '2B',
+    ('GB', 'MAJOR'): '2B', ('G', 'MAJOR'): '9B',   ('G#', 'MAJOR'): '4B',
+    ('AB', 'MAJOR'): '4B', ('A', 'MAJOR'): '11B',  ('A#', 'MAJOR'): '6B',
+    ('BB', 'MAJOR'): '6B', ('B', 'MAJOR'): '1B',   ('CB', 'MAJOR'): '1B',
+    ('C', 'MINOR'): '5A',  ('C#', 'MINOR'): '12A', ('DB', 'MINOR'): '12A',
+    ('D', 'MINOR'): '7A',  ('D#', 'MINOR'): '2A',  ('EB', 'MINOR'): '2A',
+    ('E', 'MINOR'): '9A',  ('F', 'MINOR'): '4A',   ('F#', 'MINOR'): '11A',
+    ('GB', 'MINOR'): '11A',('G', 'MINOR'): '6A',   ('G#', 'MINOR'): '1A',
+    ('AB', 'MINOR'): '1A', ('A', 'MINOR'): '8A',   ('A#', 'MINOR'): '3A',
+    ('BB', 'MINOR'): '3A', ('B', 'MINOR'): '10A',  ('CB', 'MINOR'): '10A',
 }
 
 def get_camelot_key(key, key_scale):
     if not key or not key_scale:
         return ""
-    k = str(key).upper().strip()
+    k = str(key).upper().strip().replace("SHARP", "#").replace("FLAT", "B")
     s = str(key_scale).upper().strip()
-    # Normalize word representations of sharps/flats to symbols
-    k = k.replace("SHARP", "#").replace("FLAT", "B")
     return CAMELOT_MAP.get((k, s), "")
 
+# ── Djjio In-memory cache ─────────────────────────────────────────────────────
+_cache = {}
+
+PALETTE = ["#C8A951","#5B8FA8","#C4603A","#7B6BA8","#4E9E6E",
+           "#A85B6B","#6B9E4E","#5B7BA8","#A87B3A","#6B5BA8"]
+
+def genre_color(generos_sorted):
+    return {g: PALETTE[i % len(PALETTE)] for i, g in enumerate(generos_sorted)}
+
+def get_library():
+    if "library" not in _cache:
+        lib_path = INDEX_DIR / "biblioteca.json"
+        if not lib_path.exists():
+            return []
+        with open(lib_path, encoding="utf-8") as f:
+            _cache["library"] = json.load(f)
+    return _cache["library"]
+
+def get_embeddings():
+    if "embeddings" not in _cache:
+        emb_path = INDEX_DIR / "embeddings.npy"
+        if not emb_path.exists():
+            return None
+        _cache["embeddings"] = np.load(emb_path).astype("float32")
+    return _cache["embeddings"]
+
+def get_mulan_embeddings():
+    if "mulan" not in _cache:
+        path = INDEX_DIR / "mulan_embeddings.npy"
+        if not path.exists():
+            return None
+        embs = np.load(path).astype("float32")
+        norms = np.linalg.norm(embs, axis=1, keepdims=True)
+        _cache["mulan"] = embs / (norms + 1e-8)
+    return _cache["mulan"]
+
+def camelot_compat(c1, c2):
+    if c1 == "?" or c2 == "?": return 0.5
+    if c1 == c2: return 1.0
+    try:
+        n1, l1 = int(c1[:-1]), c1[-1]
+        n2, l2 = int(c2[:-1]), c2[-1]
+    except Exception: return 0.5
+    if n1 == n2: return 0.8
+    diff = min(abs(n1 - n2), 12 - abs(n1 - n2))
+    return 0.7 if l1 == l2 and diff == 1 else 0.0
+
+def bpm_compat(b1, b2):
+    if not b1 or not b2: return 0.5
+    for r in (1.0, 2.0, 0.5):
+        ratio = (b1 / b2) / r
+        if abs(ratio - 1.0) <= 0.05: return 1.0
+        if abs(ratio - 1.0) <= 0.10: return 0.7
+    return 0.0
+
+def build_graph_data(k=5):
+    cache_key = f"graph_{k}"
+    if cache_key in _cache:
+        return _cache[cache_key]
+    fichas = get_library()
+    if not fichas:
+        return {"nodes": [], "edges": []}
+    embeddings = get_embeddings()
+    if embeddings is None:
+        return {"nodes": [], "edges": []}
+    generos = sorted({f["genero"] for f in fichas})
+    colors = genre_color(generos)
+    n = len(fichas)
+    sim = (embeddings @ embeddings.T).clip(-1, 1)
+    nodes = [
+        {"id": i, "name": Path(f["path"]).name,
+         "title": f.get("title", Path(f["path"]).stem), "artist": f.get("artist", ""),
+         "bpm": f["bpm"], "camelot": f["camelot"], "genero": f["genero"],
+         "energy": f["energy"], "color": colors.get(f["genero"], "#888"),
+         "artwork": f.get("artwork")}
+        for i, f in enumerate(fichas)
+    ]
+    edges, seen = [], set()
+    for i in range(n):
+        scores = sorted([
+            (0.5*float(sim[i,j]) + 0.3*camelot_compat(fichas[i]["camelot"], fichas[j]["camelot"])
+             + 0.2*bpm_compat(fichas[i]["bpm"], fichas[j]["bpm"]), j)
+            for j in range(n) if j != i
+        ], reverse=True)
+        for s, j in scores[:k]:
+            key = (min(i,j), max(i,j))
+            if key not in seen:
+                seen.add(key)
+                edges.append({"source": i, "target": j, "score": round(s, 3)})
+    result = {"nodes": nodes, "edges": edges}
+    _cache[cache_key] = result
+    return result
+
+# ── Tidal metadata injector ───────────────────────────────────────────────────
 def inject_metadata(track_id):
     try:
+        from tidal_mvp.cli import get_session
         s = get_session()
         t = s.track(track_id)
-        
         t_key = getattr(t, 'key', None)
         t_scale = getattr(t, 'key_scale', None)
         camelot_key = get_camelot_key(t_key, t_scale)
         bpm = getattr(t, 'bpm', None)
-        
         if not camelot_key and not bpm:
-            print(f"[Metadata] No camelot key or bpm for track {track_id}")
             return
-            
         def _sanitize(name):
             return "".join(c for c in name if c not in '<>:"/\\|?*')
-        
         title_prefix = _sanitize(f"{t.artist.name} - {t.title}")
         out_dir = Path.home() / "Music" / "TIDAL"
-        
         matching_files = []
         for ext in (".m4a", ".flac", ".mp3", ".mp4"):
             path_check = out_dir / f"{title_prefix}{ext}"
             if path_check.exists() and path_check.stat().st_size > 0:
                 matching_files.append(path_check)
-                
         if not matching_files:
-            print(f"[Metadata] Downloaded file not found for track {track_id}")
             return
-            
         file_path = matching_files[0]
-        print(f"[Metadata] Tagging {file_path} with key={camelot_key}, bpm={bpm}")
-        
         if file_path.suffix == ".flac":
             from mutagen.flac import FLAC
             audio = FLAC(file_path)
-            if camelot_key:
-                audio["initialkey"] = camelot_key
-                audio["key"] = camelot_key
-            if bpm:
-                audio["bpm"] = str(bpm)
+            if camelot_key: audio["initialkey"] = camelot_key; audio["key"] = camelot_key
+            if bpm: audio["bpm"] = str(bpm)
             audio.save()
-            print(f"[Metadata] Successfully tagged FLAC: {file_path}")
-            
         elif file_path.suffix in (".m4a", ".mp4"):
             from mutagen.mp4 import MP4
             audio = MP4(file_path)
             if bpm:
-                try:
-                    audio["tmpo"] = [int(float(bpm))]
-                except Exception as e:
-                    print("[Metadata] Error setting tmpo:", e)
+                try: audio["tmpo"] = [int(float(bpm))]
+                except: pass
             if camelot_key:
-                try:
-                    audio["----:com.apple.iTunes:initialkey"] = [camelot_key.encode('utf-8')]
-                except Exception:
-                    try:
-                        audio["----:com.apple.iTunes:initialkey"] = [camelot_key]
-                    except Exception as e:
-                        print("[Metadata] Error setting M4A key:", e)
+                try: audio["----:com.apple.iTunes:initialkey"] = [camelot_key.encode('utf-8')]
+                except: pass
             audio.save()
-            print(f"[Metadata] Successfully tagged M4A: {file_path}")
-            
         elif file_path.suffix == ".mp3":
             from mutagen.easyid3 import EasyID3
             audio = EasyID3(file_path)
-            if camelot_key:
-                audio["initialkey"] = camelot_key
-            if bpm:
-                audio["bpm"] = str(bpm)
+            if camelot_key: audio["initialkey"] = camelot_key
+            if bpm: audio["bpm"] = str(bpm)
             audio.save()
-            print(f"[Metadata] Successfully tagged MP3: {file_path}")
-            
     except Exception as e:
-        print(f"[Metadata] Error injecting metadata: {e}")
+        print(f"[Metadata] Error: {e}")
 
+# ════════════════════════════════════════════════════════════════════════════════
+# RUTAS ESTÁTICAS — servir HTML/CSS/JS del frontend
+# ════════════════════════════════════════════════════════════════════════════════
 
+@app.route("/")
+def index():
+    return send_from_directory(BASE_DIR, "index.html")
 
-class HystericalServer(http.server.BaseHTTPRequestHandler):
-    def end_headers(self):
-        # Allow cross-origin requests just in case
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
-        super().end_headers()
+@app.route("/<path:filename>")
+def static_files(filename):
+    safe = BASE_DIR / filename
+    try:
+        safe.relative_to(BASE_DIR)
+    except ValueError:
+        abort(403)
+    if not safe.exists() or safe.is_dir():
+        abort(404)
+    return send_from_directory(BASE_DIR, filename)
 
-    def do_OPTIONS(self):
-        self.send_response(200, "OK")
-        self.end_headers()
+# ════════════════════════════════════════════════════════════════════════════════
+# API TIDAL — Búsqueda, descarga, preview, stream
+# ════════════════════════════════════════════════════════════════════════════════
 
-    def do_GET(self):
-        parsed_url = urllib.parse.urlparse(self.path)
-        path = parsed_url.path
-        query = urllib.parse.parse_qs(parsed_url.query)
-
-        if path == "/api/search":
-            self.handle_search(query)
-        elif path == "/api/download":
-            self.handle_download(query)
-        elif path == "/api/download/status":
-            self.handle_download_status(query)
-        elif path == "/api/preview":
-            self.handle_preview(query)
-        elif path == "/api/stream":
-            self.handle_stream(query)
-        else:
-            self.handle_static_file(path)
-
-    def handle_static_file(self, path):
-        if path == "/":
-            path = "/index.html"
-        
-        # Static files directory is the same as server.py
-        safe_path = Path(__file__).parent / path.lstrip("/")
-        
-        # Ensure path is inside root to prevent directory traversal attacks
-        try:
-            safe_path.relative_to(Path(__file__).parent)
-        except ValueError:
-            self.send_error(403, "Access Denied")
-            return
-
-        if not safe_path.exists() or safe_path.is_dir():
-            self.send_error(404, "File Not Found")
-            return
-
-        # Determine MIME type
-        content_type = "text/plain"
-        if safe_path.suffix == ".html":
-            content_type = "text/html; charset=utf-8"
-        elif safe_path.suffix == ".css":
-            content_type = "text/css; charset=utf-8"
-        elif safe_path.suffix == ".js":
-            content_type = "application/javascript; charset=utf-8"
-        elif safe_path.suffix == ".png":
-            content_type = "image/png"
-        elif safe_path.suffix == ".jpg" or safe_path.suffix == ".jpeg":
-            content_type = "image/jpeg"
-        elif safe_path.suffix == ".ico":
-            content_type = "image/x-icon"
-
-        try:
-            data = safe_path.read_bytes()
-            self.send_response(200)
-            self.send_header("Content-Type", content_type)
-            self.send_header("Content-Length", len(data))
-            self.end_headers()
-            self.wfile.write(data)
-        except Exception as e:
-            self.send_error(500, f"Internal Server Error: {str(e)}")
-
-    def handle_search(self, query):
-        q_list = query.get('q', [''])
-        q_str = q_list[0].strip()
-
-        if not q_str:
-            self.send_json([])
-            return
-
-        try:
-            s = get_session()
-            if not s.check_login():
-                self.send_error(401, "Tidal API Session Expired or Not Logged In")
-                return
-
-            res = s.search(q_str)
-            tracks = res.get('tracks', [])
-            
-            output = []
-            for t in tracks:
-                # Convert duration to MM:SS
-                dur_sec = getattr(t, 'duration', 0)
-                minutes = dur_sec // 60
-                seconds = dur_sec % 60
-                dur_str = f"{minutes:02d}:{seconds:02d}"
-
-                # Handle album cover image
-                cover_url = ""
-                try:
-                    if t.album:
-                        cover_url = t.album.image(320)
-                except Exception:
-                    pass
-                if not cover_url:
-                    cover_url = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400&q=80" # Fallback
-
-                # License is user authorized catalog for real tracks
-                license_type = "user"
-                license_text = "Catálogo Tidal"
-
-                # Check quality tags
-                qual = str(t.audio_quality)
-                
-                # Fetch Camelot Key info
-                t_key = getattr(t, 'key', None)
-                t_scale = getattr(t, 'key_scale', None)
-                camelot_key = get_camelot_key(t_key, t_scale)
-                musical_key_str = f"{t_key} {t_scale.capitalize()}" if t_key and t_scale else ""
-                
-                output.append({
-                    "id": str(t.id),
-                    "title": t.title,
-                    "artist": t.artist.name if t.artist else "Artista Desconocido",
-                    "album": t.album.name if t.album else "Álbum Desconocido",
-                    "duration": dur_str,
-                    "cover": cover_url,
-                    "license": license_type,
-                    "licenseText": license_text,
-                    "qualities": [qual, "MP3 320kbps"],
-                    "sizeMb": round(dur_sec * 0.15, 1), # Simulated size
-                    "camelotKey": camelot_key,
-                    "musicalKey": musical_key_str,
-                    "bpm": getattr(t, 'bpm', 0)
-                })
-            
-            self.send_json(output)
-        except Exception as e:
-            print("Search error:", e)
-            self.send_error(500, f"Error searching Tidal: {str(e)}")
-
-    def handle_download(self, query):
-        track_id = query.get('id', [None])[0]
-        out_dir = query.get('out', [None])[0]
-        quality = query.get('quality', ['lossless'])[0]
-
-        if not track_id:
-            self.send_error(400, "Missing 'id' parameter")
-            return
-
-        # Use default download directory if not specified
-        if not out_dir:
-            out_dir = str(Path.home() / "Music" / "TIDAL")
-
-        try:
-            # Start background process
-            # Command: python -m tidal_mvp dl https://tidal.com/track/<id> --out "<out_dir>" --quality <quality>
-            args = [
-                sys.executable, "-m", "tidal_mvp", "dl",
-                f"https://tidal.com/track/{track_id}",
-                "--out", out_dir,
-                "--quality", quality
-            ]
-            
-            print(f"Running download: {' '.join(args)}")
-            proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            
-            # Save Popen reference and tag status
-            ACTIVE_DOWNLOADS[track_id] = {
-                "proc": proc,
-                "tagged": False
-            }
-            
-            self.send_json({"status": "started", "track_id": track_id})
-        except Exception as e:
-            self.send_error(500, f"Failed to start download: {str(e)}")
-
-    def handle_download_status(self, query):
-        track_ids = query.get('ids', [''])
-        id_list = [i.strip() for i in track_ids[0].split(',') if i.strip()]
-
-        output = {}
-        for tid in id_list:
-            if tid not in ACTIVE_DOWNLOADS:
-                output[tid] = "unknown"
-            else:
-                info = ACTIVE_DOWNLOADS[tid]
-                if isinstance(info, dict):
-                    proc = info["proc"]
-                else:
-                    proc = info
-                    info = {"proc": proc, "tagged": False}
-                    ACTIVE_DOWNLOADS[tid] = info
-                
-                exit_code = proc.poll()
-                if exit_code is None:
-                    output[tid] = "downloading"
-                elif exit_code == 0:
-                    if not info["tagged"]:
-                        inject_metadata(tid)
-                        info["tagged"] = True
-                    output[tid] = "completed"
-                else:
-                    output[tid] = "error"
-
-        self.send_json(output)
-
-    def handle_preview(self, query):
-        track_id = query.get('id', [None])[0]
-        if not track_id:
-            self.send_error(400, "Missing 'id' parameter")
-            return
-        
-        try:
-            import tidalapi
-            import urllib.request as ureq
-
-            s = get_session()
-            s.audio_quality = getattr(tidalapi.Quality, 'low_320k', tidalapi.Quality.low_320k)
-            t = s.track(track_id)
-            st = t.get_stream()
-            manifest = st.get_stream_manifest()
-            urls = manifest.get_urls()
-            
-            if not urls:
-                self.send_error(404, "Preview URL not available")
-                return
-                
-            url = str(urls[0])
-            print(f"[Preview] Proxying audio for track {track_id}: {url[:80]}...")
-
-            # Detect MIME type from manifest or fallback to audio/mp4
+@app.route("/api/search")
+def api_search_tidal():
+    q_str = request.args.get("q", "").strip()
+    if not q_str:
+        return jsonify([])
+    try:
+        from tidal_mvp.cli import get_session
+        s = get_session()
+        if not s.check_login():
+            return jsonify({"error": "Tidal session expired"}), 401
+        res = s.search(q_str)
+        tracks = res.get('tracks', [])
+        output = []
+        for t in tracks:
+            dur_sec = getattr(t, 'duration', 0)
+            minutes, seconds = dur_sec // 60, dur_sec % 60
+            cover_url = ""
             try:
-                mime_type = manifest.get_mimetype() or "audio/mp4"
-            except Exception:
-                mime_type = "audio/mp4"
-
-            # Proxy the audio bytes directly (avoids browser CORS blocks on CDN redirects)
-            req = ureq.Request(url, headers={
-                "User-Agent": "Mozilla/5.0",
-                "Accept": "*/*",
+                if t.album: cover_url = t.album.image(320)
+            except: pass
+            if not cover_url:
+                cover_url = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400&q=80"
+            t_key = getattr(t, 'key', None)
+            t_scale = getattr(t, 'key_scale', None)
+            camelot_key = get_camelot_key(t_key, t_scale)
+            output.append({
+                "id": str(t.id), "title": t.title,
+                "artist": t.artist.name if t.artist else "Artista Desconocido",
+                "album": t.album.name if t.album else "Álbum Desconocido",
+                "duration": f"{minutes:02d}:{seconds:02d}",
+                "cover": cover_url, "license": "user", "licenseText": "Catálogo Tidal",
+                "qualities": [str(t.audio_quality), "MP3 320kbps"],
+                "sizeMb": round(dur_sec * 0.15, 1),
+                "camelotKey": camelot_key,
+                "musicalKey": f"{t_key} {t_scale.capitalize()}" if t_key and t_scale else "",
+                "bpm": getattr(t, 'bpm', 0)
             })
-            with ureq.urlopen(req, timeout=20) as resp:
-                content_length = resp.headers.get("Content-Length")
-                self.send_response(200)
-                self.send_header("Content-Type", mime_type)
-                self.send_header("Accept-Ranges", "bytes")
-                if content_length:
-                    self.send_header("Content-Length", content_length)
-                self.end_headers()
-                # Stream in chunks
+        return jsonify(output)
+    except Exception as e:
+        print("Search error:", e)
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/download")
+def api_download():
+    track_id = request.args.get("id")
+    out_dir = request.args.get("out", str(Path.home() / "Music" / "TIDAL"))
+    quality = request.args.get("quality", "lossless")
+    if not track_id:
+        return jsonify({"error": "Missing id"}), 400
+    try:
+        args = [sys.executable, "-m", "tidal_mvp", "dl",
+                f"https://tidal.com/track/{track_id}", "--out", out_dir, "--quality", quality]
+        proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        ACTIVE_DOWNLOADS[track_id] = {"proc": proc, "tagged": False}
+        return jsonify({"status": "started", "track_id": track_id})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/download/status")
+def api_download_status():
+    ids_str = request.args.get("ids", "")
+    id_list = [i.strip() for i in ids_str.split(",") if i.strip()]
+    output = {}
+    for tid in id_list:
+        if tid not in ACTIVE_DOWNLOADS:
+            output[tid] = "unknown"
+        else:
+            info = ACTIVE_DOWNLOADS[tid]
+            if not isinstance(info, dict):
+                info = {"proc": info, "tagged": False}
+                ACTIVE_DOWNLOADS[tid] = info
+            exit_code = info["proc"].poll()
+            if exit_code is None:
+                output[tid] = "downloading"
+            elif exit_code == 0:
+                if not info["tagged"]:
+                    inject_metadata(tid)
+                    info["tagged"] = True
+                output[tid] = "completed"
+            else:
+                output[tid] = "error"
+    return jsonify(output)
+
+@app.route("/api/preview")
+def api_preview():
+    track_id = request.args.get("id")
+    if not track_id:
+        return jsonify({"error": "Missing id"}), 400
+    try:
+        import tidalapi
+        from tidal_mvp.cli import get_session
+        s = get_session()
+        s.audio_quality = getattr(tidalapi.Quality, 'low_320k', tidalapi.Quality.low_320k)
+        t = s.track(track_id)
+        st = t.get_stream()
+        manifest = st.get_stream_manifest()
+        urls = manifest.get_urls()
+        if not urls:
+            abort(404)
+        url = str(urls[0])
+        try:
+            mime_type = manifest.get_mimetype() or "audio/mp4"
+        except:
+            mime_type = "audio/mp4"
+        req = ureq.Request(url, headers={"User-Agent": "Mozilla/5.0", "Accept": "*/*"})
+        with ureq.urlopen(req, timeout=20) as resp:
+            content_length = resp.headers.get("Content-Length")
+            def generate():
                 while True:
                     chunk = resp.read(65536)
-                    if not chunk:
-                        break
-                    try:
-                        self.wfile.write(chunk)
-                    except BrokenPipeError:
-                        break
+                    if not chunk: break
+                    yield chunk
+            headers = {"Content-Type": mime_type, "Accept-Ranges": "bytes"}
+            if content_length:
+                headers["Content-Length"] = content_length
+            return Response(generate(), headers=headers)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-        except Exception as e:
-            print(f"[Preview] Error: {e}")
-            self.send_error(500, f"Error getting preview: {str(e)}")
+@app.route("/api/stream")
+def api_stream():
+    track_id = request.args.get("id")
+    if not track_id:
+        return jsonify({"error": "Missing id"}), 400
+    try:
+        from tidal_mvp.cli import get_session
+        s = get_session()
+        t = s.track(track_id)
+        def _sanitize(name):
+            return "".join(c for c in name if c not in '<>:"/\\|?*')
+        title_prefix = _sanitize(f"{t.artist.name} - {t.title}")
+        out_dir = Path.home() / "Music" / "TIDAL"
+        for ext in (".m4a", ".flac", ".mp4", ".ts"):
+            path_check = out_dir / f"{title_prefix}{ext}"
+            if path_check.exists() and path_check.stat().st_size > 0:
+                ct = {"flac": "audio/flac", "m4a": "audio/mp4", "mp4": "audio/mp4"}.get(ext.lstrip("."), "audio/mpeg")
+                return send_file(path_check, mimetype=ct)
+        abort(404)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-    def handle_stream(self, query):
-        track_id = query.get('id', [None])[0]
-        if not track_id:
-            self.send_error(400, "Missing 'id' parameter")
-            return
-            
-        try:
-            s = get_session()
-            t = s.track(track_id)
-            
-            def _sanitize(name):
-                return "".join(c for c in name if c not in '<>:"/\\|?*')
-            
-            title_prefix = _sanitize(f"{t.artist.name} - {t.title}")
-            out_dir = Path.home() / "Music" / "TIDAL"
-            
-            matching_files = []
-            for ext in (".m4a", ".flac", ".mp4", ".ts"):
-                path_check = out_dir / f"{title_prefix}{ext}"
-                if path_check.exists() and path_check.stat().st_size > 0:
-                    matching_files.append(path_check)
-            
-            if not matching_files:
-                self.send_error(404, "Audio file not downloaded or not found locally")
-                return
-                
-            file_path = matching_files[0]
-            data = file_path.read_bytes()
-            
-            content_type = "audio/mpeg"
-            if file_path.suffix == ".flac":
-                content_type = "audio/flac"
-            elif file_path.suffix in (".m4a", ".mp4"):
-                content_type = "audio/mp4"
-            elif file_path.suffix == ".ts":
-                content_type = "video/MP2T"
-                
-            self.send_response(200)
-            self.send_header("Content-Type", content_type)
-            self.send_header("Content-Length", len(data))
-            self.end_headers()
-            self.wfile.write(data)
-        except Exception as e:
-            self.send_error(500, f"Error streaming audio: {str(e)}")
+# ════════════════════════════════════════════════════════════════════════════════
+# API DJJIO — Sets de DJ, grafo de compatibilidad, búsqueda por mood
+# ════════════════════════════════════════════════════════════════════════════════
 
-    def send_json(self, data):
-        body = json.dumps(data).encode('utf-8')
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", len(body))
-        self.end_headers()
-        self.wfile.write(body)
+@app.route("/api/dj/library")
+def api_dj_library():
+    """Devuelve la biblioteca analizada (biblioteca.json del índice Djjio)"""
+    return jsonify(get_library())
 
+@app.route("/api/dj/stats")
+def api_dj_stats():
+    """Estadísticas del set: total tracks, géneros, BPM range, etc."""
+    fichas = get_library()
+    if not fichas:
+        return jsonify({"total": 0, "ready": False})
+    bpms = [f["bpm"] for f in fichas if f.get("bpm")]
+    generos = {}
+    for f in fichas:
+        generos[f["genero"]] = generos.get(f["genero"], 0) + 1
+    return jsonify({
+        "total": len(fichas),
+        "ready": True,
+        "bpm_min": round(min(bpms), 1) if bpms else 0,
+        "bpm_max": round(max(bpms), 1) if bpms else 0,
+        "generos": sorted(generos.items(), key=lambda x: -x[1]),
+        "has_embeddings": (INDEX_DIR / "embeddings.npy").exists(),
+        "has_mulan": (INDEX_DIR / "mulan_embeddings.npy").exists(),
+    })
+
+@app.route("/api/dj/graph")
+def api_dj_graph():
+    """Grafo de compatibilidad entre tracks (BPM + Camelot + embeddings)"""
+    k = int(request.args.get("k", 5))
+    return jsonify(build_graph_data(k=k))
+
+@app.route("/api/dj/mood-search", methods=["POST"])
+def api_dj_mood_search():
+    """Búsqueda semántica por texto usando MuQ-MuLan"""
+    data = request.get_json() or {}
+    query = data.get("query", "").strip()
+    k = int(data.get("k", 10))
+    if not query:
+        return jsonify({"error": "query vacío"}), 400
+    mulan_embs = get_mulan_embeddings()
+    if mulan_embs is None:
+        return jsonify({
+            "error": "Índice MuLan no encontrado. Ejecuta build_mulan_index.py en djjio-dj-sets/ primero.",
+            "setup_needed": True
+        }), 503
+    try:
+        if "mulan_model" not in _cache:
+            import torch
+            from muq import MuQMuLan
+            device = "cuda" if __import__("torch").cuda.is_available() else "cpu"
+            _cache["mulan_model"] = MuQMuLan.from_pretrained("OpenMuQ/MuQ-MuLan-large").to(device).eval()
+            _cache["mulan_device"] = device
+        mulan = _cache["mulan_model"]
+        device = _cache["mulan_device"]
+        import torch
+        with torch.no_grad():
+            text_emb = mulan(texts=[query])
+        text_vec = (text_emb / text_emb.norm(dim=-1, keepdim=True)).squeeze(0).cpu().numpy()
+        sims = mulan_embs @ text_vec
+        top_idx = np.argsort(sims)[::-1][:k]
+        fichas = get_library()
+        generos = sorted({f["genero"] for f in fichas})
+        colors = genre_color(generos)
+        results = [{
+            "id": int(idx), "score": round(float(sims[idx]), 3),
+            "title": fichas[idx].get("title", Path(fichas[idx]["path"]).stem),
+            "artist": fichas[idx].get("artist", ""),
+            "bpm": fichas[idx]["bpm"], "camelot": fichas[idx]["camelot"],
+            "genero": fichas[idx]["genero"], "energy": fichas[idx]["energy"],
+            "artwork": fichas[idx].get("artwork"),
+            "color": colors.get(fichas[idx]["genero"], "#888"),
+        } for idx in top_idx]
+        return jsonify(results)
+    except ImportError:
+        return jsonify({
+            "error": "Librería MuQ no instalada. Ejecuta: pip install muq torch librosa",
+            "setup_needed": True
+        }), 503
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/dj/analyze", methods=["POST"])
+def api_dj_analyze():
+    """Analiza un archivo de audio y lo agrega al índice"""
+    data = request.get_json() or {}
+    folder = data.get("folder", "")
+    if not folder or not Path(folder).exists():
+        return jsonify({"error": "Carpeta no encontrada"}), 400
+    try:
+        djjio_dir = BASE_DIR.parent / "djjio-dj-sets"
+        script = djjio_dir / "build_index.py"
+        if not script.exists():
+            return jsonify({"error": "Script de indexación no encontrado"}), 404
+        INDEX_DIR.mkdir(exist_ok=True)
+        proc = subprocess.Popen(
+            [sys.executable, str(script), "--folder", folder, "--out", str(INDEX_DIR)],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
+        return jsonify({"status": "indexing", "pid": proc.pid, "message": "Analizando tracks en segundo plano..."})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/dj/reload", methods=["POST"])
+def api_dj_reload():
+    _cache.pop("library", None)
+    _cache.pop("embeddings", None)
+    _cache.pop("mulan", None)
+    for key in list(_cache.keys()):
+        if key.startswith("graph_"):
+            _cache.pop(key, None)
+    return jsonify({"ok": True, "message": "Caché del índice recargado"})
+
+# ── Servir audio del índice Djjio ─────────────────────────────────────────────
+@app.route("/api/dj/audio/<int:track_id>")
+def api_dj_audio(track_id):
+    fichas = get_library()
+    if track_id >= len(fichas):
+        abort(404)
+    path = Path(fichas[track_id]["path"])
+    if not path.exists():
+        abort(404)
+    return send_file(path, conditional=True)
+
+# ════════════════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
-    # Ensure background folder exists
     Path(Path.home() / "Music" / "TIDAL").mkdir(parents=True, exist_ok=True)
-    
-    # Run server
-    socketserver.TCPServer.allow_reuse_address = True
-    with socketserver.TCPServer(("", PORT), HystericalServer) as httpd:
-        print(f"Serving Legal Music Downloader hybrid API/Web at http://localhost:{PORT}")
-        try:
-            httpd.serve_forever()
-        except KeyboardInterrupt:
-            pass
+    INDEX_DIR.mkdir(exist_ok=True)
+    print("\n  AetherMusic + Djjio — Puerto 8000")
+    print("  http://localhost:8000\n")
+    app.run(host="0.0.0.0", port=8000, debug=False, threaded=True)

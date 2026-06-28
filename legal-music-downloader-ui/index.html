@@ -3,12 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AetherMusic - Descarga de Música Legal</title>
-    <!-- Google Fonts -->
+    <title>AetherMusic — Descarga & DJ Sets</title>
+    <meta name="description" content="Descarga música legal de Tidal y prepara tus sets de DJ con IA: grafo de compatibilidad por BPM, clave Camelot y búsqueda por mood.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-    <!-- Main CSS Link -->
+    <!-- D3.js para el grafo de compatibilidad -->
+    <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -28,7 +29,7 @@
             
             <ul class="nav-menu">
                 <li>
-                    <a class="nav-item active" data-tab="search">
+                    <a class="nav-item active" data-tab="search" id="nav-search">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <circle cx="11" cy="11" r="8"></circle>
                             <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
@@ -37,7 +38,7 @@
                     </a>
                 </li>
                 <li>
-                    <a class="nav-item" data-tab="download">
+                    <a class="nav-item" data-tab="download" id="nav-download">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                             <polyline points="7 10 12 15 17 10"></polyline>
@@ -47,7 +48,7 @@
                     </a>
                 </li>
                 <li>
-                    <a class="nav-item" data-tab="library">
+                    <a class="nav-item" data-tab="library" id="nav-library">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M9 18V5l12-2v13"></path>
                             <circle cx="6" cy="18" r="3"></circle>
@@ -56,24 +57,55 @@
                         <span>Biblioteca</span>
                     </a>
                 </li>
+
+                <!-- Separador DJ -->
+                <li class="nav-separator">
+                    <span>🎛️ DJ Tools</span>
+                </li>
+
                 <li>
-                    <a class="nav-item" data-tab="settings">
+                    <a class="nav-item" data-tab="djsets" id="nav-djsets">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <circle cx="12" cy="12" r="3"></circle>
+                            <line x1="12" y1="2" x2="12" y2="5"></line>
+                            <line x1="12" y1="19" x2="12" y2="22"></line>
+                            <line x1="2" y1="12" x2="5" y2="12"></line>
+                            <line x1="19" y1="12" x2="22" y2="12"></line>
+                        </svg>
+                        <span>Preparar Set</span>
+                    </a>
+                </li>
+                <li>
+                    <a class="nav-item" data-tab="moodsearch" id="nav-moodsearch">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 2a5 5 0 1 0 5 5 5 5 0 0 0-5-5zm0 8a3 3 0 1 1 3-3 3 3 0 0 1-3 3z"/>
+                            <path d="M20 21a8 8 0 1 0-16 0"/>
+                            <line x1="12" y1="14" x2="12" y2="21"/>
+                            <line x1="8" y1="18" x2="16" y2="18"/>
+                        </svg>
+                        <span>Buscar por Mood</span>
+                        <span class="nav-badge-ai">IA</span>
+                    </a>
+                </li>
+
+                <li>
+                    <a class="nav-item" data-tab="settings" id="nav-settings">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <circle cx="12" cy="12" r="3"></circle>
-                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.51 1H7a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9"></path>
                         </svg>
                         <span>Configuración</span>
                     </a>
                 </li>
             </ul>
             
-            <!-- Legal Music Source Badge -->
             <div class="legal-badge-sidebar">
                 <div class="legal-badge-sidebar-title">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-                    Filtro de Música Legal
+                    Música Legal + IA DJ
                 </div>
-                <span>Toda la música disponible procede de fuentes de dominio público, catálogos Creative Commons o licencias de usuario válidas.</span>
+                <span>Descarga de fuentes legales y prepara tus sets con inteligencia artificial.</span>
             </div>
         </aside>
 
@@ -86,12 +118,10 @@
                     <h1 class="header-title">Descubre Música Legal</h1>
                     <p class="header-subtitle">Encuentra y descarga canciones sin infracciones de derechos de autor.</p>
                 </div>
-                
                 <div class="search-box">
                     <input type="text" id="search-input" class="search-input" placeholder="Buscar canciones, artistas o álbumes...">
                     <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
                 </div>
-                
                 <div class="filter-container">
                     <span class="filter-label">Filtrar por Licencia:</span>
                     <button class="filter-tag active" data-filter="all">Todas las Fuentes</button>
@@ -99,10 +129,7 @@
                     <button class="filter-tag" data-filter="cc">Creative Commons</button>
                     <button class="filter-tag" data-filter="user">Catálogo Autorizado</button>
                 </div>
-                
-                <div class="results-grid" id="results-grid">
-                    <!-- Cards will be rendered here by app.js -->
-                </div>
+                <div class="results-grid" id="results-grid"></div>
             </section>
             
             <!-- 2. Downloads Panel -->
@@ -111,11 +138,8 @@
                     <h1 class="header-title">Descargas activas</h1>
                     <p class="header-subtitle">Progreso y estado de las transferencias en cola.</p>
                 </div>
-                
                 <div class="download-sections">
-                    <div class="download-list" id="download-queue">
-                        <!-- Download items will be rendered here by app.js -->
-                    </div>
+                    <div class="download-list" id="download-queue"></div>
                 </div>
             </section>
             
@@ -125,19 +149,142 @@
                     <h1 class="header-title">Tu Biblioteca Local</h1>
                     <p class="header-subtitle">Canciones descargadas legalmente y listas para reproducirse fuera de línea.</p>
                 </div>
-                
-                <div class="download-list" id="library-list">
-                    <!-- Library tracks will be rendered here by app.js -->
+                <div class="download-list" id="library-list"></div>
+            </section>
+
+            <!-- 4. DJ SETS Panel -->
+            <section id="djsets-section" class="view-section">
+                <div class="header-container">
+                    <h1 class="header-title">Preparar Set de DJ</h1>
+                    <p class="header-subtitle">Visualiza la compatibilidad entre tus tracks por BPM, clave Camelot y similitud musical.</p>
+                </div>
+
+                <!-- Stats Bar -->
+                <div class="dj-stats-bar" id="dj-stats-bar">
+                    <div class="dj-stat-card">
+                        <div class="dj-stat-value" id="dj-stat-total">—</div>
+                        <div class="dj-stat-label">Tracks analizados</div>
+                    </div>
+                    <div class="dj-stat-card">
+                        <div class="dj-stat-value" id="dj-stat-bpm">—</div>
+                        <div class="dj-stat-label">Rango BPM</div>
+                    </div>
+                    <div class="dj-stat-card">
+                        <div class="dj-stat-value" id="dj-stat-genres">—</div>
+                        <div class="dj-stat-label">Géneros</div>
+                    </div>
+                    <div class="dj-stat-card">
+                        <div class="dj-stat-value" id="dj-stat-embeddings">—</div>
+                        <div class="dj-stat-label">Motor IA</div>
+                    </div>
+                </div>
+
+                <!-- Setup needed card -->
+                <div class="dj-setup-card" id="dj-setup-card" style="display:none;">
+                    <div class="dj-setup-icon">🎛️</div>
+                    <h2>Indexa tu biblioteca musical</h2>
+                    <p>Para usar el asistente de sets, necesitas analizar tu carpeta de música primero. El proceso extrae BPM, clave armónica y embeddings de audio.</p>
+                    <div class="dj-setup-row">
+                        <input type="text" id="dj-folder-input" class="form-control" placeholder="Ruta a tu carpeta de música (ej: C:\Music\)" style="flex:1;">
+                        <button class="btn btn-primary" id="btn-dj-analyze" onclick="startDjAnalysis()">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                            Analizar
+                        </button>
+                    </div>
+                    <p class="dj-setup-hint">También puedes ejecutar <code>build_index.py</code> en la carpeta <code>djjio-dj-sets/</code> manualmente.</p>
+                </div>
+
+                <!-- Graph Controls -->
+                <div class="dj-graph-controls" id="dj-graph-controls" style="display:none;">
+                    <div class="dj-filter-row">
+                        <label class="form-label">Conexiones por nodo:</label>
+                        <div class="slider-group" style="flex:1; max-width:250px;">
+                            <input type="range" id="dj-k-slider" min="2" max="10" value="5">
+                            <span class="slider-val" id="dj-k-val">5</span>
+                        </div>
+                        <button class="btn btn-secondary" id="btn-reload-graph" onclick="loadDjGraph()">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38"/></svg>
+                            Actualizar
+                        </button>
+                    </div>
+                    <div class="dj-legend" id="dj-graph-legend"></div>
+                </div>
+
+                <!-- D3 Compatibility Graph -->
+                <div class="dj-graph-container" id="dj-graph-container">
+                    <div class="dj-graph-loading" id="dj-graph-loading">
+                        <div class="dj-spinner"></div>
+                        <span>Cargando grafo de compatibilidad...</span>
+                    </div>
+                    <svg id="dj-graph-svg"></svg>
+                    <div class="dj-tooltip" id="dj-tooltip"></div>
+                </div>
+
+                <!-- Track list -->
+                <div id="dj-tracklist-section" style="display:none;">
+                    <h2 style="font-size:1.1rem; font-weight:700; margin-bottom:16px; color:var(--text-muted);">
+                        Tracks en tu biblioteca DJ
+                    </h2>
+                    <div class="download-list" id="dj-track-list"></div>
                 </div>
             </section>
-            
-            <!-- 4. Settings Panel -->
+
+            <!-- 5. MOOD SEARCH Panel -->
+            <section id="moodsearch-section" class="view-section">
+                <div class="header-container">
+                    <div style="display:flex; align-items:center; gap:12px;">
+                        <h1 class="header-title">Buscar por Mood</h1>
+                        <span class="ai-badge">IA MuQ-MuLan</span>
+                    </div>
+                    <p class="header-subtitle">Describe el vibe que buscas y la IA encontrará los tracks más compatibles de tu biblioteca.</p>
+                </div>
+
+                <!-- Mood Search Box -->
+                <div class="mood-search-container">
+                    <div class="mood-search-box">
+                        <textarea id="mood-query" class="mood-textarea" rows="2" placeholder="Describe el mood... ej: &quot;dark techno underground hypnotic&quot;, &quot;melodic house sunset vibes&quot;, &quot;aggressive bass heavy drop&quot;"></textarea>
+                        <div class="mood-search-footer">
+                            <div class="mood-presets">
+                                <span class="mood-preset-label">Sugerencias:</span>
+                                <button class="mood-chip" onclick="setMoodQuery('dark hypnotic techno')">🌑 Dark Techno</button>
+                                <button class="mood-chip" onclick="setMoodQuery('melodic progressive house sunset')">🌅 Melodic House</button>
+                                <button class="mood-chip" onclick="setMoodQuery('aggressive bass drop festival')">⚡ Festival Banger</button>
+                                <button class="mood-chip" onclick="setMoodQuery('afro house tribal percussion')">🌍 Afro House</button>
+                                <button class="mood-chip" onclick="setMoodQuery('minimal techno hypnotic loop')">🔄 Minimal</button>
+                            </div>
+                            <div style="display:flex; gap:12px; align-items:center;">
+                                <label class="form-label" style="white-space:nowrap;">Top resultados:</label>
+                                <select id="mood-k" class="form-control" style="width:80px; padding:8px;">
+                                    <option value="5">5</option>
+                                    <option value="10" selected>10</option>
+                                    <option value="20">20</option>
+                                </select>
+                                <button class="btn btn-primary" id="btn-mood-search" onclick="runMoodSearch()">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                                    Buscar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Mood Results -->
+                <div id="mood-results-container">
+                    <div class="mood-empty-state" id="mood-empty-state">
+                        <div style="font-size:3rem;">🎧</div>
+                        <p>Escribe un mood o vibe y encuentra tracks perfectos para tu set</p>
+                        <p style="font-size:0.85rem; color:var(--text-disabled); margin-top:8px;">Requiere índice MuLan generado con <code>build_mulan_index.py</code></p>
+                    </div>
+                    <div id="mood-results-list" style="display:none;"></div>
+                </div>
+            </section>
+
+            <!-- 6. Settings Panel -->
             <section id="settings-section" class="view-section">
                 <div class="header-container">
                     <h1 class="header-title">Ajustes del Sistema</h1>
                     <p class="header-subtitle">Configura los directorios, calidades y límites del motor de descarga.</p>
                 </div>
-                
                 <div class="settings-container">
                     <div class="settings-card">
                         <h2 class="settings-section-title">
@@ -145,20 +292,18 @@
                             Almacenamiento y Directorios
                         </h2>
                         <div class="form-group">
-                            <label class="form-label" for="dest-folder">Ruta de Descarga</label>
+                            <label class="form-label" for="dest-folder">Ruta de Descarga Tidal</label>
                             <div class="form-control-row">
                                 <input type="text" id="dest-folder" class="form-control" readonly>
                                 <button class="btn btn-secondary" id="btn-browse">Examinar...</button>
                             </div>
                         </div>
                     </div>
-                    
                     <div class="settings-card">
                         <h2 class="settings-section-title">
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
                             Calidad de Medios y Formato
                         </h2>
-                        
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
                             <div class="form-group">
                                 <label class="form-label" for="pref-format">Formato de Audio</label>
@@ -168,7 +313,6 @@
                                     <option value="aac">AAC (.m4a)</option>
                                 </select>
                             </div>
-                            
                             <div class="form-group">
                                 <label class="form-label" for="pref-quality">Calidad del Audio</label>
                                 <select id="pref-quality" class="form-control">
@@ -180,7 +324,6 @@
                             </div>
                         </div>
                     </div>
-                    
                     <div class="settings-card">
                         <h2 class="settings-section-title">
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
@@ -200,7 +343,6 @@
 
         <!-- Footer / Mini Audio Player -->
         <footer class="footer-bar">
-            <!-- Left: Song details -->
             <div class="footer-left">
                 <img id="player-cover" class="mini-player-cover" src="https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=100&q=80" alt="Sin reproducir">
                 <div class="mini-player-info">
@@ -208,8 +350,6 @@
                     <div id="player-artist" class="mini-player-artist">Para iniciar la reproducción</div>
                 </div>
             </div>
-            
-            <!-- Center: Timeline & Controls -->
             <div class="footer-center">
                 <div class="player-controls">
                     <button class="player-btn" title="Anterior">
@@ -228,8 +368,6 @@
                     <span id="time-total">00:00</span>
                 </div>
             </div>
-            
-            <!-- Right: Download quick stats -->
             <div class="footer-right">
                 <div class="mini-download-status" id="mini-dl-status" style="display: none;">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="8 17 12 21 16 17"></polyline><line x1="12" y1="12" x2="12" y2="21"></line><path d="M20.88 18.04A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"></path></svg>
@@ -239,13 +377,8 @@
         </footer>
     </div>
 
-    <!-- Global Toast Alert Container -->
     <div class="toast-container" id="toast-container"></div>
-
-    <!-- Real HTML5 Audio Element -->
     <audio id="real-audio-element" style="display:none;"></audio>
-
-    <!-- Main JavaScript Link -->
     <script src="app.js"></script>
 </body>
 </html>
