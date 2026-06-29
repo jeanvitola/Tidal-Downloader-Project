@@ -1077,6 +1077,19 @@ async function startDjAnalysis() {
     btn.disabled = true;
     btn.textContent = 'Verificando...';
 
+    // Mostrar y resetear barra de progreso
+    const progressContainer = document.getElementById('dj-analyze-progress-container');
+    const progressBar = document.getElementById('dj-analyze-progress-bar');
+    const progressText = document.getElementById('dj-analyze-progress-text');
+    const progressPct = document.getElementById('dj-analyze-progress-pct');
+    
+    if (progressContainer) {
+        progressContainer.style.display = 'block';
+        progressBar.style.width = '0%';
+        progressText.innerText = 'Inicializando análisis...';
+        progressPct.innerText = '0%';
+    }
+
     // Crear o limpiar consola de progreso
     let consoleEl = document.getElementById('dj-analyze-console');
     if (!consoleEl) {
@@ -1153,13 +1166,27 @@ async function startDjAnalysis() {
                     const ev = JSON.parse(line.slice(5).trim());
                     if (ev.type === 'start') {
                         logLine('▶ ' + ev.msg, '#06b6d4');
+                        if (progressText) progressText.innerText = ev.msg;
                     } else if (ev.type === 'log') {
-                        // Resaltar lineas con progreso [N/M]
                         const isFailed = ev.msg.includes('FALLO') || ev.msg.includes('ERROR');
                         logLine(ev.msg, isFailed ? '#f87171' : '#34d399');
+                        
+                        // Parse N/M progress: e.g. [3/12]
+                        const match = /\[(\d+)\/(\d+)\]/.exec(ev.msg);
+                        if (match) {
+                            const cur = parseInt(match[1]);
+                            const tot = parseInt(match[2]);
+                            const pctVal = Math.round((cur / tot) * 100);
+                            if (progressBar) progressBar.style.width = pctVal + '%';
+                            if (progressPct) progressPct.innerText = pctVal + '%';
+                            if (progressText) progressText.innerText = `Analizando track ${cur} de ${tot}...`;
+                        }
                     } else if (ev.type === 'done') {
                         logLine('', '');
                         logLine('✅ ' + ev.msg, '#10b981');
+                        if (progressBar) progressBar.style.width = '100%';
+                        if (progressPct) progressPct.innerText = '100%';
+                        if (progressText) progressText.innerText = '¡Análisis completado!';
                         showToast('Analisis de tracks completado');
                         // Recargar la interfaz DJ
                         setTimeout(() => {
@@ -1299,4 +1326,35 @@ function toggleSetupCard() {
         card.style.display = 'none';
     }
 }
+
+async function clearDjIndex() {
+    if (!confirm("¿Estás seguro de que quieres borrar toda la biblioteca de DJ y empezar de cero? Esto eliminará todos los tracks analizados.")) {
+        return;
+    }
+    try {
+        const res = await fetch('/api/dj/clear', { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+            showToast("Biblioteca DJ borrada completamente");
+            djGraphData = null;
+            if (djSimulation) djSimulation.stop();
+            document.getElementById('dj-track-list').innerHTML = '';
+            
+            // Ocultar elementos del grafo y mostrar la tarjeta setup
+            document.getElementById('dj-graph-controls').style.display = 'none';
+            document.getElementById('dj-tracklist-section').style.display = 'none';
+            
+            // Ocultar grafo e inicializar de nuevo
+            const svg = d3.select('#dj-graph-svg');
+            svg.selectAll('*').remove();
+            
+            initDjSets();
+        } else {
+            showToast("Error al borrar índice: " + data.error);
+        }
+    } catch(e) {
+        showToast("Error de red: " + e.message);
+    }
+}
+
 
