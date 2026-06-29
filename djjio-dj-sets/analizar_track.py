@@ -98,9 +98,10 @@ def _features_dsp(y, sr):
     scale = "major" if is_major else "minor"
     camelot = CAMELOT_MAJOR[note_idx] if is_major else CAMELOT_MINOR[note_idx]
 
-    # Energia 0-1 via RMS
+    # Energia 0-1 via RMS logaritmica (dB rango -45 a -10)
     rms = float(np.sqrt(np.mean(y ** 2)))
-    energy = float(np.clip(rms * 6, 0, 1))
+    db = 20 * np.log10(rms + 1e-6)
+    energy = float(np.clip((db + 45) / 35, 0.0, 1.0))
 
     return {
         "bpm": bpm,

@@ -74,9 +74,10 @@ def analyze_lite(path):
     note_name = CHROMA_NOTES[note_idx]
     scale = "major" if is_major else "minor"
 
-    # Energia 0-1 via RMS
+    # Energia 0-1 via RMS logaritmica (dB rango -45 a -10)
     rms = float(np.sqrt(np.mean(y ** 2)))
-    energy = float(np.clip(rms * 6, 0, 1))
+    db = 20 * np.log10(rms + 1e-6)
+    energy = float(np.clip((db + 45) / 35, 0.0, 1.0))
 
     # Embedding ligero: media y std de chroma como vector de 24 dims
     emb = np.concatenate([chroma_mean, chroma.std(axis=1)]).astype("float32")
