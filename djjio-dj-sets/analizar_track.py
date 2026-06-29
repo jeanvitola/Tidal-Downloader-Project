@@ -22,9 +22,9 @@ if DEVICE == "cuda" and not torch.cuda.is_available():
 # ============================================================
 USE_FP16 = os.getenv("DJJIO_USE_FP16", "0") in ("1", "true", "True")
 
-print("Cargando modelos…")
+print("Cargando modelos...")
 if USE_FP16 and DEVICE == "cpu":
-    print("Advertencia: FP16 solo está disponible en CUDA; ignorando DJJIO_USE_FP16")
+    print("Advertencia: FP16 solo esta disponible en CUDA; ignorando DJJIO_USE_FP16")
 
 muq_base = MuQ.from_pretrained("OpenMuQ/MuQ-large-msd-iter").to(DEVICE)
 mulan = MuQMuLan.from_pretrained("OpenMuQ/MuQ-MuLan-large").to(DEVICE)

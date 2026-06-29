@@ -36,7 +36,7 @@ def build(folder, out_dir="index"):
             emb = f.pop("embedding")          # saca el vector de la ficha
             fichas.append(f)
             embeddings.append(emb)
-            print(f"  [{i}/{len(tracks)}] {p.name}  →  {f['bpm']} BPM · {f['camelot']} · {f['genero']}")
+            print(f"  [{i}/{len(tracks)}] {p.name} -> {f['bpm']} BPM - {f['camelot']} - {f['genero']}")
             # Liberar memoria CUDA fragmentada y coleccionar basura
             try:
                 if torch.cuda.is_available():
@@ -46,7 +46,7 @@ def build(folder, out_dir="index"):
             gc.collect()
         except Exception as e:
             fallidos.append((str(p), str(e)))
-            print(f"  [{i}/{len(tracks)}] FALLÓ: {p.name} — {e}")
+            print(f"  [{i}/{len(tracks)}] FALLO: {p.name} - {e}")
 
     # Guardar
     matrix = np.stack(embeddings).astype("float32")   # [N, 1024]
@@ -56,8 +56,8 @@ def build(folder, out_dir="index"):
 
     print(f"\n{'='*50}")
     print(f"Listo en {time.time()-t0:.1f}s")
-    print(f"  fichas:     {len(fichas)} → {out/'biblioteca.json'}")
-    #print(f"  embeddings: {matrix.shape} → {out/'embeddings.npy'}")
+    print(f"  fichas:     {len(fichas)} -> {out/'biblioteca.json'}")
+    #print(f"  embeddings: {matrix.shape} -> {out/'embeddings.npy'}")
     if fallidos:
         print(f"  {len(fallidos)} tracks fallaron")
         for path, err in fallidos:
