@@ -11,6 +11,11 @@ import torch
 import librosa
 import numpy as np
 from muq import MuQ, MuQMuLan
+from pathlib import Path
+try:
+    from mutagen import File as MuFile
+except ImportError:
+    MuFile = None
 
 DEVICE = os.getenv("DJJIO_DEVICE", "cuda")
 # Si se pidió cuda pero no está disponible, caer a cpu.
@@ -125,6 +130,21 @@ def _embedding(wavs, layer=EMBED_LAYER):
     return v.squeeze(0).cpu().numpy().astype("float32")
 
 
+def get_metadata(path):
+    """Lee titulo y artista de las etiquetas ID3/FLAC/MP4."""
+    title, artist = Path(path).stem, ""
+    if MuFile is None:
+        return title, artist
+    try:
+        tags = MuFile(path, easy=True)
+        if tags:
+            title  = (tags.get("title")  or [title])[0]
+            artist = (tags.get("artist") or [""])[0]
+    except Exception:
+        pass
+    return str(title), str(artist)
+
+
 # ============================================================
 #  Función principal
 # ============================================================
@@ -142,9 +162,12 @@ def analizar_track(path):
     genero, score = _genero_zero_shot(wavs)
     emb = _embedding(wavs)
     dsp = _features_dsp(wav, sr)
+    title, artist = get_metadata(path)
 
     return {
         "path": path,
+        "title": title,
+        "artist": artist,
         **dsp,
         "genero": genero,
         "genero_score": score,
