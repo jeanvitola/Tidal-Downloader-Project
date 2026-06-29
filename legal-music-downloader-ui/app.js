@@ -1285,3 +1285,18 @@ function renderMoodResults(results, query) {
         resultsList.appendChild(item);
     });
 }
+
+function toggleSetupCard() {
+    const card = document.getElementById('dj-setup-card');
+    if (card.style.display === 'none') {
+        card.style.display = 'flex';
+        const folderInput = document.getElementById('dj-folder-input');
+        if (!folderInput.value) {
+            folderInput.value = state.settings.destinationFolder || '';
+        }
+        card.scrollIntoView({ behavior: 'smooth' });
+    } else {
+        card.style.display = 'none';
+    }
+}
+
