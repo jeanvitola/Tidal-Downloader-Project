@@ -10,7 +10,6 @@ os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 import torch
 import librosa
 import numpy as np
-import essentia.standard as es
 from muq import MuQ, MuQMuLan
 
 DEVICE = os.getenv("DJJIO_DEVICE", "cuda")
@@ -71,40 +70,40 @@ EMBED_LAYER = 10  # capa alta de MuQ: buena para género/estilo
 # ============================================================
 #  Motores de análisis
 # ============================================================
-def _features_dsp(path):
-    """BPM, tonalidad, Camelot y energía (0-1) vía DSP con essentia."""
-    audio = es.MonoLoader(filename=path, sampleRate=44100)()
+def _features_dsp(y, sr):
+    """BPM, tonalidad, Camelot y energía (0-1) vía DSP con librosa."""
+    # BPM
+    tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
+    bpm = round(float(np.atleast_1d(tempo)[0]), 1)
 
-    # --- BPM ---
-    bpm, _, _, _, _ = es.RhythmExtractor2013(method="multifeature")(audio)
+    # Clave armonica via chroma
+    chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
+    chroma_mean = chroma.mean(axis=1)
+    note_idx = int(np.argmax(chroma_mean))
 
-    # --- Key / tonalidad ---
-    key, scale, _ = es.KeyExtractor()(audio)
+    # Detectar mayor vs menor con spectral centroid como proxy de brillo
+    centroid = float(librosa.feature.spectral_centroid(y=y, sr=sr).mean())
+    is_major = centroid > 2200
 
-    # --- Energía normalizada 0-1 ---
-    energy = _energy_normalized(audio)
+    CHROMA_NOTES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B']
+    CAMELOT_MAJOR = ['8B','3B','10B','5B','12B','7B','2B','9B','4B','11B','6B','1B']
+    CAMELOT_MINOR = ['5A','12A','7A','2A','9A','4A','11A','6A','1A','8A','3A','10A']
+
+    note_name = CHROMA_NOTES[note_idx]
+    scale = "major" if is_major else "minor"
+    camelot = CAMELOT_MAJOR[note_idx] if is_major else CAMELOT_MINOR[note_idx]
+
+    # Energia 0-1 via RMS
+    rms = float(np.sqrt(np.mean(y ** 2)))
+    energy = float(np.clip(rms * 6, 0, 1))
 
     return {
-        "bpm": round(float(bpm), 1),
-        "key": key,
+        "bpm": bpm,
+        "key": note_name,
         "scale": scale,
-        "camelot": CAMELOT.get((key, scale), "?"),
+        "camelot": camelot,
         "energy": round(energy, 3),
     }
-
-
-def _energy_normalized(audio):
-    """Energía perceptual mapeada a 0-1. Usa LUFS si puede, si no RMS."""
-    try:
-        stereo = np.array([audio, audio]).T.astype("float32")
-        loud = es.LoudnessEBUR128(hopSize=0.1, sampleRate=44100)
-        _, _, integrated, _ = loud(stereo)
-        # integrated en LUFS (típico -30 a -5) → 0-1
-        return float(np.clip((integrated + 30) / 25, 0, 1))
-    except Exception:
-        # Fallback robusto: RMS normalizado
-        rms = np.sqrt(np.mean(audio ** 2))
-        return float(np.clip(rms * 4, 0, 1))
 
 
 def _genero_zero_shot(wavs):
@@ -131,7 +130,7 @@ def _embedding(wavs, layer=EMBED_LAYER):
 # ============================================================
 def analizar_track(path):
     """Devuelve la ficha completa de un track: DSP + género + embedding."""
-    wav, _ = librosa.load(path, sr=24000, mono=True)
+    wav, sr = librosa.load(path, sr=24000, mono=True, duration=30)
     wavs = torch.tensor(wav).unsqueeze(0).to(DEVICE)
     # Si los modelos están en FP16 y CUDA, pasar el tensor a half
     if USE_FP16 and DEVICE == "cuda":
@@ -142,7 +141,7 @@ def analizar_track(path):
 
     genero, score = _genero_zero_shot(wavs)
     emb = _embedding(wavs)
-    dsp = _features_dsp(path)
+    dsp = _features_dsp(wav, sr)
 
     return {
         "path": path,
