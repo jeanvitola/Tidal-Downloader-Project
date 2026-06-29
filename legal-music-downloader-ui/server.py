@@ -459,24 +459,66 @@ def api_dj_mood_search():
 
 @app.route("/api/dj/analyze", methods=["POST"])
 def api_dj_analyze():
-    """Analiza un archivo de audio y lo agrega al índice"""
+    """Lanza build_index.py y transmite el progreso linea a linea (SSE)"""
     data = request.get_json() or {}
-    folder = data.get("folder", "")
-    if not folder or not Path(folder).exists():
-        return jsonify({"error": "Carpeta no encontrada"}), 400
-    try:
-        djjio_dir = BASE_DIR.parent / "djjio-dj-sets"
-        script = djjio_dir / "build_index.py"
-        if not script.exists():
-            return jsonify({"error": "Script de indexación no encontrado"}), 404
-        INDEX_DIR.mkdir(exist_ok=True)
-        proc = subprocess.Popen(
-            [sys.executable, str(script), "--folder", folder, "--out", str(INDEX_DIR)],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE
-        )
-        return jsonify({"status": "indexing", "pid": proc.pid, "message": "Analizando tracks en segundo plano..."})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    folder = data.get("folder", "").strip()
+
+    if not folder:
+        return jsonify({"error": "Introduce la ruta de tu carpeta de musica."}), 400
+    if not Path(folder).exists():
+        return jsonify({"error": f"La carpeta no existe: {folder}"}), 400
+
+    djjio_dir = BASE_DIR.parent / "djjio-dj-sets"
+    script = djjio_dir / "build_index.py"
+    if not script.exists():
+        return jsonify({"error": "Script build_index.py no encontrado en djjio-dj-sets/"}), 404
+
+    # Verificar dependencias clave antes de lanzar
+    missing = []
+    for lib in ("torch", "librosa", "essentia", "muq"):
+        try:
+            __import__(lib)
+        except ImportError:
+            missing.append(lib)
+    if missing:
+        return jsonify({
+            "error": f"Faltan dependencias: {', '.join(missing)}",
+            "setup_needed": True,
+            "install_cmd": f"pip install {' '.join(missing)}"
+        }), 503
+
+    INDEX_DIR.mkdir(exist_ok=True)
+
+    def generate():
+        yield f"data: {json.dumps({'type':'start', 'msg': f'Iniciando analisis de {folder}...'})}\n\n"
+        try:
+            proc = subprocess.Popen(
+                [sys.executable, str(script), folder],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                cwd=str(djjio_dir),
+                text=True, encoding="utf-8", errors="replace",
+                env={**os.environ, "PYTHONUNBUFFERED": "1"}
+            )
+            for line in proc.stdout:
+                line = line.rstrip()
+                if line:
+                    yield f"data: {json.dumps({'type':'log', 'msg': line})}\n\n"
+            proc.wait()
+            if proc.returncode == 0:
+                _cache.pop("library", None)
+                _cache.pop("embeddings", None)
+                for k in list(_cache):
+                    if k.startswith("graph_"):
+                        _cache.pop(k, None)
+                yield f"data: {json.dumps({'type':'done', 'msg': 'Analisis completado. Recarga la seccion de Sets.'})}\n\n"
+            else:
+                yield f"data: {json.dumps({'type':'error', 'msg': f'El script termino con codigo {proc.returncode}'})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'type':'error', 'msg': str(e)})}\n\n"
+
+    return Response(generate(), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
 
 @app.route("/api/dj/reload", methods=["POST"])
 def api_dj_reload():

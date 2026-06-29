@@ -176,7 +176,7 @@ function initNavigation() {
 
 function switchTab(tabName) {
     state.currentTab = tabName;
-    
+
     // Update active navbar item
     elements.navItems.forEach(item => {
         if (item.getAttribute('data-tab') === tabName) {
@@ -185,7 +185,7 @@ function switchTab(tabName) {
             item.classList.remove('active');
         }
     });
-    
+
     // Update section visibility
     elements.sections.forEach(sec => {
         if (sec.id === `${tabName}-section`) {
@@ -194,6 +194,10 @@ function switchTab(tabName) {
             sec.classList.remove('active');
         }
     });
+
+    // DJ Tools — lazy init on first visit
+    if (tabName === 'djsets') initDjSets();
+    if (tabName === 'moodsearch') initMoodSearch();
 }
 
 // 2. Search & Filters
@@ -823,14 +827,6 @@ function showToast(message) {
 // 8. DJ TOOLS — Preparar Set + Mood Search
 // ════════════════════════════════════════════════════════════════════════════
 
-// Hook into navigation to load DJ data on tab switch
-const _originalSwitchTab = switchTab;
-function switchTab(tabName) {
-    _originalSwitchTab(tabName);
-    if (tabName === 'djsets') initDjSets();
-    if (tabName === 'moodsearch') initMoodSearch();
-}
-
 // ── DJ Sets: Stats + Graph ────────────────────────────────────────────────
 
 let djGraphData = null;
@@ -1061,24 +1057,113 @@ function playDjTrack(id) {
 
 async function startDjAnalysis() {
     const folder = document.getElementById('dj-folder-input').value.trim();
-    if (!folder) { showToast('Por favor, introduce la ruta de tu carpeta de música.'); return; }
+    if (!folder) { showToast('Por favor, introduce la ruta de tu carpeta de musica.'); return; }
+
     const btn = document.getElementById('btn-dj-analyze');
     btn.disabled = true;
-    btn.textContent = 'Analizando...';
+    btn.textContent = 'Verificando...';
+
+    // Crear o limpiar consola de progreso
+    let consoleEl = document.getElementById('dj-analyze-console');
+    if (!consoleEl) {
+        consoleEl = document.createElement('div');
+        consoleEl.id = 'dj-analyze-console';
+        consoleEl.style.cssText = `
+            background: #0a0c10; border: 1px solid rgba(16,185,129,0.2);
+            border-radius: 12px; padding: 16px; margin-top: 16px;
+            font-family: monospace; font-size: 0.82rem; color: #34d399;
+            max-height: 260px; overflow-y: auto; line-height: 1.7;
+            white-space: pre-wrap; word-break: break-all;
+        `;
+        document.getElementById('dj-setup-card').appendChild(consoleEl);
+    }
+    consoleEl.innerHTML = '';
+
+    function logLine(msg, color) {
+        const line = document.createElement('div');
+        line.style.color = color || '#34d399';
+        line.textContent = msg;
+        consoleEl.appendChild(line);
+        consoleEl.scrollTop = consoleEl.scrollHeight;
+    }
+
+    // Primero: POST para validar carpeta y dependencias
+    let resp;
     try {
-        const res = await fetch('/api/dj/analyze', {
+        resp = await fetch('/api/dj/analyze', {
             method: 'POST',
-            headers: {'Content-Type':'application/json'},
+            headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({folder})
         });
-        const data = await res.json();
-        if (data.error) { showToast('Error: ' + data.error); }
-        else { showToast(data.message || 'Análisis iniciado en segundo plano. Recarga en unos minutos.'); }
     } catch(e) {
-        showToast('Error iniciando análisis: ' + e.message);
+        logLine('Error de red: ' + e.message, '#ef4444');
+        btn.disabled = false;
+        btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> Analizar';
+        return;
     }
+
+    // Si el servidor devuelve JSON de error (deps faltantes, carpeta invalida, etc.)
+    const contentType = resp.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+        const errData = await resp.json();
+        logLine('ERROR: ' + errData.error, '#ef4444');
+        if (errData.setup_needed && errData.install_cmd) {
+            logLine('', '#ef4444');
+            logLine('Instala las dependencias con:', '#f59e0b');
+            logLine('  ' + errData.install_cmd, '#a78bfa');
+            logLine('', '');
+            logLine('Luego reinicia el servidor y vuelve a intentar.', '#9ca3af');
+        }
+        btn.disabled = false;
+        btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> Analizar';
+        return;
+    }
+
+    // Si llegamos aqui es un SSE stream — leer con ReadableStream
+    btn.textContent = 'Analizando...';
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    try {
+        while (true) {
+            const {done, value} = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, {stream: true});
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // guarda linea incompleta
+
+            for (const line of lines) {
+                if (!line.startsWith('data:')) continue;
+                try {
+                    const ev = JSON.parse(line.slice(5).trim());
+                    if (ev.type === 'start') {
+                        logLine('▶ ' + ev.msg, '#06b6d4');
+                    } else if (ev.type === 'log') {
+                        // Resaltar lineas con progreso [N/M]
+                        const isFailed = ev.msg.includes('FALLO') || ev.msg.includes('ERROR');
+                        logLine(ev.msg, isFailed ? '#f87171' : '#34d399');
+                    } else if (ev.type === 'done') {
+                        logLine('', '');
+                        logLine('✅ ' + ev.msg, '#10b981');
+                        showToast('Analisis de tracks completado');
+                        // Recargar la interfaz DJ
+                        setTimeout(() => {
+                            initDjSets();
+                        }, 1000);
+                    } else if (ev.type === 'error') {
+                        logLine('❌ ' + ev.msg, '#ef4444');
+                        showToast('Error durante el analisis');
+                    }
+                } catch(_) {}
+            }
+        }
+    } catch(e) {
+        logLine('Conexion interrumpida: ' + e.message, '#f59e0b');
+    }
+
     btn.disabled = false;
-    btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> Analizar';
+    btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> Analizar de nuevo';
 }
 
 // ── Mood Search ───────────────────────────────────────────────────────────
