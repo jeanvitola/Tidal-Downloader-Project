@@ -66,6 +66,7 @@ def build(folder, out_dir="index"):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Uso: python build_index.py /ruta/a/carpeta/de/musica")
+        print("Uso: python build_index.py /ruta/a/carpeta/de/musica [/ruta/salida]")
         sys.exit(1)
-    build(sys.argv[1])
+    out = sys.argv[2] if len(sys.argv) > 2 else "index"
+    build(sys.argv[1], out)

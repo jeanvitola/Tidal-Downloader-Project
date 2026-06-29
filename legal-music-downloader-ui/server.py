@@ -459,7 +459,7 @@ def api_dj_mood_search():
 
 @app.route("/api/dj/analyze", methods=["POST"])
 def api_dj_analyze():
-    """Lanza build_index.py y transmite el progreso linea a linea (SSE)"""
+    """Lanza build_index.py (full IA) o build_index_lite.py (solo librosa) y transmite progreso SSE"""
     data = request.get_json() or {}
     folder = data.get("folder", "").strip()
 
@@ -469,31 +469,58 @@ def api_dj_analyze():
         return jsonify({"error": f"La carpeta no existe: {folder}"}), 400
 
     djjio_dir = BASE_DIR.parent / "djjio-dj-sets"
-    script = djjio_dir / "build_index.py"
-    if not script.exists():
-        return jsonify({"error": "Script build_index.py no encontrado en djjio-dj-sets/"}), 404
+    script_full = djjio_dir / "build_index.py"
+    script_lite = djjio_dir / "build_index_lite.py"
 
-    # Verificar dependencias clave antes de lanzar
-    missing = []
-    for lib in ("torch", "librosa", "essentia", "muq"):
+    # Verificar si tenemos las deps de IA completas
+    ai_missing = []
+    for lib in ("torch", "librosa"):
         try:
             __import__(lib)
         except ImportError:
-            missing.append(lib)
-    if missing:
-        return jsonify({
-            "error": f"Faltan dependencias: {', '.join(missing)}",
-            "setup_needed": True,
-            "install_cmd": f"pip install {' '.join(missing)}"
-        }), 503
+            ai_missing.append(lib)
+
+    # Verificar muq por separado (puede estar instalado pero roto)
+    muq_ok = False
+    try:
+        import muq  # noqa
+        muq_ok = True
+    except Exception:
+        ai_missing.append("muq")
+
+    # Decidir que script usar
+    if ai_missing or not script_full.exists():
+        # Fallback: modo lite (solo librosa)
+        script = script_lite
+        mode = "lite"
+        if not script_lite.exists():
+            return jsonify({"error": "build_index_lite.py no encontrado. Reinstala el proyecto."}), 404
+        # Verificar solo librosa para el modo lite
+        try:
+            import librosa  # noqa
+        except ImportError:
+            return jsonify({
+                "error": "librosa no esta instalado.",
+                "setup_needed": True,
+                "install_cmd": "pip install librosa mutagen"
+            }), 503
+    else:
+        script = script_full
+        mode = "full"
 
     INDEX_DIR.mkdir(exist_ok=True)
 
     def generate():
-        yield f"data: {json.dumps({'type':'start', 'msg': f'Iniciando analisis de {folder}...'})}\n\n"
+        if mode == "lite":
+            yield f"data: {json.dumps({'type':'info', 'msg': 'Modo lite (sin IA): solo librosa. BPM, clave Camelot, energia.'})}\n\n"
+        else:
+            yield f"data: {json.dumps({'type':'info', 'msg': 'Modo completo (IA): cargando modelos MuQ...'})}\n\n"
+
+        yield f"data: {json.dumps({'type':'start', 'msg': f'Analizando: {folder}'})}\n\n"
+
         try:
             proc = subprocess.Popen(
-                [sys.executable, str(script), folder],
+                [sys.executable, str(script), folder, str(INDEX_DIR)],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 cwd=str(djjio_dir),
                 text=True, encoding="utf-8", errors="replace",
@@ -510,14 +537,15 @@ def api_dj_analyze():
                 for k in list(_cache):
                     if k.startswith("graph_"):
                         _cache.pop(k, None)
-                yield f"data: {json.dumps({'type':'done', 'msg': 'Analisis completado. Recarga la seccion de Sets.'})}\n\n"
+                yield f"data: {json.dumps({'type':'done', 'msg': 'Analisis completado exitosamente!'})}\n\n"
             else:
-                yield f"data: {json.dumps({'type':'error', 'msg': f'El script termino con codigo {proc.returncode}'})}\n\n"
+                yield f"data: {json.dumps({'type':'error', 'msg': f'El proceso termino con codigo {proc.returncode}. Revisa los logs.'})}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'type':'error', 'msg': str(e)})}\n\n"
 
     return Response(generate(), mimetype="text/event-stream",
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
 
 
 @app.route("/api/dj/reload", methods=["POST"])
