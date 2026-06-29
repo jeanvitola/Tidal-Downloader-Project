@@ -27,9 +27,9 @@ CAMELOT_MINOR = ['5A','12A','7A','2A','9A','4A','11A','6A','1A','8A','3A','10A']
 
 
 def get_metadata(path):
-    """Lee titulo, artista y genero de las etiquetas ID3/FLAC/MP4."""
+    """Lee titulo, artista, genero y bpm de las etiquetas ID3/FLAC/MP4."""
     path_obj = Path(path)
-    title, artist, genre = path_obj.stem, "", "sin clasificar"
+    title, artist, genre, bpm = path_obj.stem, "", "sin clasificar", None
     if MuFile is not None:
         try:
             tags = MuFile(path, easy=True)
@@ -37,6 +37,14 @@ def get_metadata(path):
                 title  = (tags.get("title")  or [title])[0]
                 artist = (tags.get("artist") or [""])[0]
                 genre  = (tags.get("genre")  or ["sin clasificar"])[0]
+                bpm_val = tags.get("bpm")
+                if bpm_val:
+                    try:
+                        val = float(bpm_val[0])
+                        if 40 <= val <= 250:
+                            bpm = round(val, 1)
+                    except:
+                        pass
         except Exception:
             pass
 
@@ -49,7 +57,7 @@ def get_metadata(path):
         if parent_name and parent_name not in GENERIC_FOLDERS:
             genre = parent_name
             
-    return str(title), str(artist), genre
+    return str(title), str(artist), genre, bpm
 
 
 
@@ -58,9 +66,23 @@ def analyze_lite(path):
     # Cargar audio (mono, 22050 Hz, max 3 min para velocidad)
     y, sr = librosa.load(path, sr=22050, mono=True, duration=180)
 
+    # Metadata
+    title, artist, genre, tags_bpm = get_metadata(path)
+
     # BPM
-    tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
-    bpm = round(float(np.atleast_1d(tempo)[0]), 1)
+    if tags_bpm is not None:
+        bpm = tags_bpm
+    else:
+        # Estimador con prior de DJ
+        onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+        tempo = librosa.feature.tempo(onset_envelope=onset_env, sr=sr, start_bpm=120.0, std_bpm=40.0)
+        bpm = float(tempo[0])
+        # Corrección de octava
+        if bpm < 75.0:
+            bpm *= 2.0
+        elif bpm > 170.0:
+            bpm /= 2.0
+        bpm = round(bpm, 1)
 
     # Clave armonica via chroma
     chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
@@ -84,9 +106,6 @@ def analyze_lite(path):
     norm = np.linalg.norm(emb)
     if norm > 0:
         emb /= norm
-
-    # Metadata
-    title, artist, genre = get_metadata(path)
 
     return {
         "path": str(path),

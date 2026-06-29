@@ -75,11 +75,23 @@ EMBED_LAYER = 10  # capa alta de MuQ: buena para género/estilo
 # ============================================================
 #  Motores de análisis
 # ============================================================
-def _features_dsp(y, sr):
+def _features_dsp(y, sr, tags_bpm=None):
     """BPM, tonalidad, Camelot y energía (0-1) vía DSP con librosa."""
-    # BPM
-    tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
-    bpm = round(float(np.atleast_1d(tempo)[0]), 1)
+    # 1. Usar BPM de metadatos si está disponible
+    if tags_bpm is not None:
+        bpm = tags_bpm
+    else:
+        # 2. Estimador de tempo con prior de DJ (80-160 BPM)
+        onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+        tempo = librosa.feature.tempo(onset_envelope=onset_env, sr=sr, start_bpm=120.0, std_bpm=40.0)
+        bpm = float(tempo[0])
+        
+        # 3. Corrección de octava (BPM doble/medio) para rango de club
+        if bpm < 75.0:
+            bpm *= 2.0
+        elif bpm > 170.0:
+            bpm /= 2.0
+        bpm = round(bpm, 1)
 
     # Clave armonica via chroma
     chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
@@ -132,18 +144,26 @@ def _embedding(wavs, layer=EMBED_LAYER):
 
 
 def get_metadata(path):
-    """Lee titulo y artista de las etiquetas ID3/FLAC/MP4."""
-    title, artist = Path(path).stem, ""
+    """Lee titulo, artista y bpm de las etiquetas ID3/FLAC/MP4."""
+    title, artist, bpm = Path(path).stem, "", None
     if MuFile is None:
-        return title, artist
+        return title, artist, bpm
     try:
         tags = MuFile(path, easy=True)
         if tags:
             title  = (tags.get("title")  or [title])[0]
             artist = (tags.get("artist") or [""])[0]
+            bpm_val = tags.get("bpm")
+            if bpm_val:
+                try:
+                    val = float(bpm_val[0])
+                    if 40 <= val <= 250:
+                        bpm = round(val, 1)
+                except:
+                    pass
     except Exception:
         pass
-    return str(title), str(artist)
+    return str(title), str(artist), bpm
 
 
 # ============================================================
@@ -162,8 +182,8 @@ def analizar_track(path):
 
     genero, score = _genero_zero_shot(wavs)
     emb = _embedding(wavs)
-    dsp = _features_dsp(wav, sr)
-    title, artist = get_metadata(path)
+    title, artist, tags_bpm = get_metadata(path)
+    dsp = _features_dsp(wav, sr, tags_bpm)
 
     return {
         "path": path,
