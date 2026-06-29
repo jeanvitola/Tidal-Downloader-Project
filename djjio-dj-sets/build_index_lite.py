@@ -28,18 +28,29 @@ CAMELOT_MINOR = ['5A','12A','7A','2A','9A','4A','11A','6A','1A','8A','3A','10A']
 
 def get_metadata(path):
     """Lee titulo, artista y genero de las etiquetas ID3/FLAC/MP4."""
-    title, artist, genre = Path(path).stem, "", "sin clasificar"
-    if MuFile is None:
-        return title, artist, genre
-    try:
-        tags = MuFile(path, easy=True)
-        if tags:
-            title  = (tags.get("title")  or [title])[0]
-            artist = (tags.get("artist") or [""])[0]
-            genre  = (tags.get("genre")  or ["sin clasificar"])[0]
-    except Exception:
-        pass
-    return str(title), str(artist), str(genre).lower()
+    path_obj = Path(path)
+    title, artist, genre = path_obj.stem, "", "sin clasificar"
+    if MuFile is not None:
+        try:
+            tags = MuFile(path, easy=True)
+            if tags:
+                title  = (tags.get("title")  or [title])[0]
+                artist = (tags.get("artist") or [""])[0]
+                genre  = (tags.get("genre")  or ["sin clasificar"])[0]
+        except Exception:
+            pass
+
+    genre = str(genre).strip().lower()
+    
+    # Fallback al nombre de la carpeta contenedora si no tiene genero en metadata
+    GENERIC_FOLDERS = {"music", "tidal", "downloads", "temp", "desktop", "musica", "descargas", "new folder", "nueva carpeta", "index", "legal-music-downloader-ui"}
+    if genre in ("", "sin clasificar", "unknown", "other", "sin_clasificar"):
+        parent_name = path_obj.parent.name.strip().lower()
+        if parent_name and parent_name not in GENERIC_FOLDERS:
+            genre = parent_name
+            
+    return str(title), str(artist), genre
+
 
 
 def analyze_lite(path):
