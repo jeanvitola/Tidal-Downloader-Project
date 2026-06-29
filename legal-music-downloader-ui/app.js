@@ -887,18 +887,20 @@ async function loadDjGraph() {
 
     try {
         const res = await fetch(`/api/dj/graph?k=${k}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         djGraphData = await res.json();
         if (loading) loading.style.display = 'none';
         renderDjGraph(djGraphData);
         buildDjLegend(djGraphData.nodes);
     } catch(e) {
         if (loading) {
-            loading.innerHTML = `<span style="color:var(--danger)">Error cargando grafo: ${e.message}</span>`;
+            loading.innerHTML = `<span style="color:var(--danger)">Error cargando grafo: ${e ? (e.message || e) : 'Error desconocido'}</span>`;
         }
     }
 }
 
 function buildDjLegend(nodes) {
+    if (!nodes || !nodes.length) return;
     const genres = [...new Set(nodes.map(n => n.genero))];
     const legendEl = document.getElementById('dj-graph-legend');
     legendEl.innerHTML = genres.map(g => {
@@ -910,10 +912,22 @@ function buildDjLegend(nodes) {
     }).join('');
 }
 
+
 function renderDjGraph(data) {
     const container = document.getElementById('dj-graph-container');
     const svg = d3.select('#dj-graph-svg');
     svg.selectAll('*').remove();
+
+    if (!data || !data.nodes || !data.nodes.length) {
+        svg.append('text')
+            .attr('x', container.clientWidth / 2 || 250)
+            .attr('y', container.clientHeight / 2 || 200)
+            .attr('text-anchor', 'middle')
+            .attr('fill', 'var(--text-muted)')
+            .attr('font-size', '14px')
+            .text('No hay tracks analizados para mostrar el grafo.');
+        return;
+    }
 
     const W = container.clientWidth;
     const H = container.clientHeight;
