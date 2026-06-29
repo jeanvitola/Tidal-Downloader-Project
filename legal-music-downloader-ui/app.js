@@ -996,7 +996,7 @@ function renderDjGraph(data) {
         })
         .on('mouseout', () => tooltip.classList.remove('visible'))
         .on('click', (e, d) => {
-            showToast(`${d.title} — ${d.bpm} BPM · ${d.camelot}`);
+            playDjTrack(d.id);
         });
 
     // Label (truncated)
@@ -1061,12 +1061,34 @@ async function loadDjTrackList() {
 }
 
 function playDjTrack(id) {
+    const track = djGraphData?.nodes?.[id];
+    if (!track) return;
+    
+    // Transformar track a formato estándar de reproductor
+    const song = {
+        id: 'dj_' + id,
+        title: track.title,
+        artist: track.artist || 'Artista Desconocido',
+        cover: track.artwork || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=100&q=80',
+        duration: '00:00' // se actualizará dinámicamente con durationchange
+    };
+    
+    state.currentlyPlaying = song;
+    
+    // Actualizar metadatos en barra reproductora
+    elements.playerCover.src = song.cover;
+    elements.playerTitle.innerText = song.title;
+    elements.playerArtist.innerText = song.artist;
+    elements.timeTotal.innerText = song.duration;
+    elements.timeCurrent.innerText = "00:00";
+    elements.timelineSlider.value = 0;
+
     elements.realAudioElement.src = `/api/dj/audio/${id}`;
     elements.realAudioElement.load();
     elements.realAudioElement.play().catch(() => {
         showToast('No se pudo reproducir el archivo de audio local.');
     });
-    showToast(`Reproduciendo track #${id} de la biblioteca DJ`);
+    showToast(`Reproduciendo: "${song.title}"`);
 }
 
 async function startDjAnalysis() {
