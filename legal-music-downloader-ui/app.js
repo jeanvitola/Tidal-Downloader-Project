@@ -840,18 +840,22 @@ async function initDjSets() {
         updateDjStats(stats);
         if (stats.ready) {
             document.getElementById('dj-setup-card').style.display = 'none';
+            document.getElementById('dj-view-tabs').style.display = 'flex';
             document.getElementById('dj-graph-controls').style.display = 'flex';
             document.getElementById('dj-tracklist-section').style.display = 'block';
+            switchDjSubView('graph'); // default to graph view
             loadDjGraph();
             loadDjTrackList();
         } else {
             document.getElementById('dj-setup-card').style.display = 'flex';
+            document.getElementById('dj-view-tabs').style.display = 'none';
             document.getElementById('dj-graph-controls').style.display = 'none';
             document.getElementById('dj-tracklist-section').style.display = 'none';
             hideDjGraphLoading();
         }
     } catch(e) {
         document.getElementById('dj-setup-card').style.display = 'flex';
+        document.getElementById('dj-view-tabs').style.display = 'none';
         document.getElementById('dj-graph-controls').style.display = 'none';
         hideDjGraphLoading();
     }
@@ -1363,6 +1367,7 @@ async function clearDjIndex() {
             document.getElementById('dj-track-list').innerHTML = '';
             
             // Ocultar elementos del grafo y mostrar la tarjeta setup
+            document.getElementById('dj-view-tabs').style.display = 'none';
             document.getElementById('dj-graph-controls').style.display = 'none';
             document.getElementById('dj-tracklist-section').style.display = 'none';
             
@@ -1376,6 +1381,145 @@ async function clearDjIndex() {
         }
     } catch(e) {
         showToast("Error de red: " + e.message);
+    }
+}
+
+function switchDjSubView(viewName) {
+    const tabs = document.querySelectorAll('.dj-view-tab');
+    tabs.forEach(tab => {
+        if (tab.id === `tab-dj-${viewName}`) {
+            tab.classList.add('active');
+            tab.style.color = 'var(--primary)';
+            tab.style.borderBottom = '2px solid var(--primary)';
+            tab.style.fontWeight = '700';
+        } else {
+            tab.classList.remove('active');
+            tab.style.color = 'var(--text-muted)';
+            tab.style.borderBottom = 'none';
+            tab.style.fontWeight = '600';
+        }
+    });
+
+    const panels = document.querySelectorAll('.dj-sub-view-panel');
+    panels.forEach(p => {
+        if (p.id === `dj-sub-view-${viewName}`) {
+            p.style.display = 'block';
+        } else {
+            p.style.display = 'none';
+        }
+    });
+
+    if (viewName === 'story') {
+        loadDjStorytelling();
+    }
+}
+
+async function loadDjStorytelling() {
+    const container = document.getElementById('dj-story-chapters');
+    container.innerHTML = `
+        <div class="dj-graph-loading" style="position:relative; height:100px; background:transparent">
+            <div class="dj-spinner"></div>
+            <span>Calculando capítulos armónicos...</span>
+        </div>`;
+
+    try {
+        const res = await fetch('/api/dj/chapters');
+        const chapters = await res.json();
+        
+        container.innerHTML = '';
+        
+        const names = ["Intro", "Build", "Peak", "Cooldown"];
+        const colors = {
+            Intro: "#3b82f6",     // blue
+            Build: "#10b981",     // green
+            Peak: "#ef4444",      // red
+            Cooldown: "#8b5cf6"   // purple
+        };
+        const descs = {
+            Intro: "Energía baja · Abre tu set y engancha al público",
+            Build: "Energía media · Eleva la tensión gradualmente",
+            Peak: "Energía alta · Clímax en la pista de baile",
+            Cooldown: "Cierre suave · Baja la energía progresivamente"
+        };
+
+        let activeChaptersCount = 0;
+
+        names.forEach(name => {
+            const tracks = chapters[name] || [];
+            if (!tracks.length) return;
+            
+            activeChaptersCount++;
+            const color = colors[name];
+            const desc = descs[name];
+            
+            const chapterEl = document.createElement('div');
+            chapterEl.className = 'dj-chapter-card';
+            chapterEl.style.cssText = `
+                background: rgba(255,255,255,0.02);
+                border: 1px solid rgba(255,255,255,0.05);
+                border-left: 4px solid ${color};
+                border-radius: 12px;
+                overflow: hidden;
+                margin-bottom: 24px;
+                width: 100%;
+            `;
+
+            let trackRows = '';
+            tracks.forEach((t, i) => {
+                const energyPct = Math.round((t.energy || 0) * 100);
+                trackRows += `
+                    <tr style="border-bottom:1px solid rgba(255,255,255,0.02); transition: background 0.2s;">
+                        <td style="padding:12px; font-weight:600; color:rgba(255,255,255,0.3); width:32px; font-size:0.85rem;">#${i+1}</td>
+                        <td style="padding:12px; font-weight:500; font-size:0.9rem; color:#e2e8f0;">
+                            ${t.name}
+                            ${t.genero ? `<span style="font-size:0.75rem; color:${color}bb; margin-left:8px; background:${color}15; padding:2px 6px; border-radius:4px; border:1px solid ${color}22">${t.genero}</span>` : ''}
+                        </td>
+                        <td style="padding:12px; width:100px;">
+                            <span class="camelot-badge">${t.camelot || '?'}</span>
+                        </td>
+                        <td style="padding:12px; width:100px;">
+                            <span class="bpm-badge">${Math.round(t.bpm)} BPM</span>
+                        </td>
+                        <td style="padding:12px; width:140px; vertical-align:middle;">
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <div class="progress-bar-bg" style="height:6px; flex:1; margin-bottom:0; background:rgba(255,255,255,0.06);">
+                                    <div class="progress-bar-fill" style="width:${energyPct}%; background:${color};"></div>
+                                </div>
+                                <span style="font-size:0.78rem; font-family:monospace; color:var(--text-muted);">${energyPct}%</span>
+                            </div>
+                        </td>
+                        <td style="padding:12px; width:50px; text-align:right;">
+                            <button class="btn btn-secondary btn-icon-only" onclick="playDjTrack(${t.idx})" style="padding:6px; background:rgba(255,255,255,0.04); border-color:transparent;" title="Reproducir track">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            chapterEl.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:16px 20px; background:rgba(255,255,255,0.015); border-bottom:1px solid rgba(255,255,255,0.04);">
+                    <div>
+                        <h3 style="margin:0; font-size:1.05rem; font-weight:700; color:${color};">${name}</h3>
+                        <span style="font-size:0.8rem; color:var(--text-muted);">${desc}</span>
+                    </div>
+                    <span style="font-size:0.78rem; background:rgba(255,255,255,0.06); padding:4px 10px; border-radius:12px; font-weight:600; color:var(--text-muted);">${tracks.length} tracks</span>
+                </div>
+                <table style="width:100%; border-collapse:collapse; text-align:left;">
+                    <tbody>
+                        ${trackRows}
+                    </tbody>
+                </table>
+            `;
+            container.appendChild(chapterEl);
+        });
+
+        if (activeChaptersCount === 0) {
+            container.innerHTML = `<p style="color:var(--text-muted); padding:32px; text-align:center;">No hay tracks suficientes en la biblioteca para dividir en capítulos.</p>`;
+        }
+
+    } catch (e) {
+        container.innerHTML = `<p style="color:var(--danger); padding:32px; text-align:center;">Error construyendo capítulos: ${e.message}</p>`;
     }
 }
 
