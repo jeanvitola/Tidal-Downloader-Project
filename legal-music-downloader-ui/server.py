@@ -558,6 +558,115 @@ def api_dj_reload():
             _cache.pop(key, None)
     return jsonify({"ok": True, "message": "Caché del índice recargado"})
 
+@app.route("/api/dj/clear", methods=["POST"])
+def api_dj_clear():
+    """Borra todos los archivos del índice para empezar de cero sin errores"""
+    try:
+        _cache.clear()
+        if INDEX_DIR.exists():
+            for p in INDEX_DIR.iterdir():
+                if p.is_file():
+                    try:
+                        p.unlink()
+                    except Exception:
+                        pass
+        return jsonify({"ok": True, "message": "Índice borrado completamente."})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/dj/chapters")
+def api_dj_chapters():
+    """Retorna las canciones distribuidas en capítulos (Intro, Build, Peak, Cooldown) ordenadas armónicamente"""
+    try:
+        fichas = get_library()
+        if not fichas:
+            return jsonify({})
+        
+        # 1. Distancia Camelot
+        def camelot_dist(c1, c2):
+            if c1 == "?" or c2 == "?": return 6
+            try:
+                n1, l1 = int(c1[:-1]), c1[-1]
+                n2, l2 = int(c2[:-1]), c2[-1]
+            except: return 6
+            if c1 == c2: return 0
+            if n1 == n2: return 1
+            diff = min(abs(n1 - n2), 12 - abs(n1 - n2))
+            return diff if l1 == l2 else diff + 1
+
+        # Camino greedy compatible armónica y con progresión de BPM ascendente
+        def greedy_camelot_bpm_path(tracks_list):
+            if not tracks_list: return []
+            # Ordenar primero por BPM para empezar con la de menor velocidad
+            remaining = sorted(tracks_list, key=lambda t: t["bpm"])
+            path = [remaining.pop(0)]
+            while remaining:
+                last = path[-1]
+                def get_cost(cand):
+                    c_dist = camelot_dist(last["camelot"], cand["camelot"])
+                    bpm_diff = cand["bpm"] - last["bpm"]
+                    # Penalizar bajadas de BPM para favorecer progresión de menos a más
+                    if bpm_diff >= 0:
+                        bpm_cost = bpm_diff
+                    else:
+                        bpm_cost = abs(bpm_diff) * 6.0
+                    return c_dist * 4.0 + bpm_cost
+                
+                best = min(remaining, key=get_cost)
+                remaining.remove(best)
+                path.append(best)
+            return path
+
+        # 2. Segmentar por energía normalizada
+        energies = [t["energy"] for t in fichas]
+        e_min, e_max = min(energies), max(energies)
+        e_range = e_max - e_min or 1.0
+
+        def norm(e):
+            return (e - e_min) / e_range
+
+        chapters = {"Intro": [], "Build": [], "Peak": [], "Cooldown": []}
+        unassigned = []
+
+        for idx, t in enumerate(fichas):
+            t_with_idx = {**t, "idx": idx}
+            ne = norm(t["energy"])
+            assigned = False
+            if ne <= 0.30:
+                chapters["Intro"].append(t_with_idx)
+                assigned = True
+            if 0.20 <= ne <= 0.65:
+                chapters["Build"].append(t_with_idx)
+                assigned = True
+            if ne >= 0.55:
+                chapters["Peak"].append(t_with_idx)
+                assigned = True
+            if not assigned:
+                unassigned.append(t_with_idx)
+
+        for t in unassigned:
+            ne = norm(t["energy"])
+            centers = {"Intro": 0.15, "Build": 0.425, "Peak": 0.775, "Cooldown": 0.15}
+            best = min(centers, key=lambda c: abs(centers[c] - ne))
+            chapters[best].append(t)
+
+        if len(chapters["Intro"]) > 2:
+            intro_sorted = sorted(chapters["Intro"], key=lambda t: t["energy"])
+            split = max(1, len(intro_sorted) // 2)
+            chapters["Cooldown"] = intro_sorted[:split]
+            chapters["Intro"] = intro_sorted[split:]
+
+        # 3. Aplicar orden armonico y progresion de BPM por capitulo
+        res = {}
+        for name in ["Intro", "Build", "Peak", "Cooldown"]:
+            res[name] = greedy_camelot_bpm_path(chapters[name])
+            
+        return jsonify(res)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
 # ── Servir audio del índice Djjio ─────────────────────────────────────────────
 @app.route("/api/dj/audio/<int:track_id>")
 def api_dj_audio(track_id):
