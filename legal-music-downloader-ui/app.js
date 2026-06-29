@@ -1471,7 +1471,7 @@ async function loadDjStorytelling() {
                     <tr style="border-bottom:1px solid rgba(255,255,255,0.02); transition: background 0.2s;">
                         <td style="padding:12px; font-weight:600; color:rgba(255,255,255,0.3); width:32px; font-size:0.85rem;">#${i+1}</td>
                         <td style="padding:12px; font-weight:500; font-size:0.9rem; color:#e2e8f0;">
-                            ${t.name}
+                            ${t.title || 'Track Desconocido'} — <span style="color:var(--text-muted); font-size:0.82rem;">${t.artist || 'Artista Desconocido'}</span>
                             ${t.genero ? `<span style="font-size:0.75rem; color:${color}bb; margin-left:8px; background:${color}15; padding:2px 6px; border-radius:4px; border:1px solid ${color}22">${t.genero}</span>` : ''}
                         </td>
                         <td style="padding:12px; width:100px;">
